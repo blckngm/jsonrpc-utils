@@ -1,0 +1,17 @@
+[package]
+name = "jsonrpc-axum"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+axum = { version = "0.5.6", features = ["ws"] }
+hex = "0.4.3"
+jsonrpc-core = "18.0.0"
+rand = "0.8.5"
+tokio = { version = "1.19.0", features = ["sync", "macros"] }
+
+[dev-dependencies]
+tokio = { version = "1.19.0", features = ["rt-multi-thread"] }
+tower = "0.4.12"
