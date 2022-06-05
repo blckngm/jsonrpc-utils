@@ -1,5 +1,5 @@
 [package]
-name = "jsonrpc-axum"
+name = "jsonrpc-utils"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,11 +7,13 @@ edition = "2021"
 
 [dependencies]
 axum = { version = "0.5.6", features = ["ws"] }
+futures-core = "0.3.21"
+futures-util = "0.3.21"
 hex = "0.4.3"
 jsonrpc-core = "18.0.0"
 rand = "0.8.5"
 tokio = { version = "1.19.0", features = ["sync", "macros"] }
 
 [dev-dependencies]
+async-stream = "0.3.3"
 tokio = { version = "1.19.0", features = ["rt-multi-thread"] }
-tower = "0.4.12"
