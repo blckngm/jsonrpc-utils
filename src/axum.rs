@@ -1,4 +1,4 @@
-use std::sync::{atomic::AtomicU64, Arc};
+use std::sync::Arc;
 
 use axum::{
     body::Bytes,
@@ -10,13 +10,15 @@ use axum::{
 };
 use futures_util::{SinkExt, StreamExt};
 use jsonrpc_core::{MetaIoHandler, Metadata};
-use tokio::sync::mpsc::channel;
 
-use crate::pubsub::Session;
+use crate::{
+    pubsub::Session,
+    stream::{serve_stream_sink, StreamServerConfig},
+};
 
 /// Axum handler to handle HTTP jsonrpc request.
 pub async fn handle_jsonrpc<T: Default + Metadata>(
-    Extension(io): Extension<MetaIoHandler<T>>,
+    Extension(io): Extension<Arc<MetaIoHandler<T>>>,
     req_body: Bytes,
 ) -> Response {
     let req = match std::str::from_utf8(req_body.as_ref()) {
@@ -38,99 +40,29 @@ pub async fn handle_jsonrpc<T: Default + Metadata>(
     }
 }
 
-pub struct WebSocketConfig {
-    channel_size: usize,
-    pipeline_size: usize,
-}
-
-impl Default for WebSocketConfig {
-    fn default() -> Self {
-        Self {
-            channel_size: 8,
-            pipeline_size: 1,
-        }
-    }
-}
-
-impl WebSocketConfig {
-    /// Set websocket channel size.
-    ///
-    /// Default is 8.
-    ///
-    /// # Panics
-    ///
-    /// If channel_size is 0.
-    pub fn with_channel_size(mut self, channel_size: usize) -> Self {
-        assert!(channel_size > 0);
-        self.channel_size = channel_size;
-        self
-    }
-
-    /// Set maximum request pipelining.
-    ///
-    /// Up to `pipeline_size` number of requests will be handled concurrently.
-    ///
-    /// Default is 1, i.e. no pipelining.
-    ///
-    /// # Panics
-    ///
-    /// if `pipeline_size` is 0.
-    pub fn with_pipeline_size(mut self, pipeline_size: usize) -> Self {
-        assert!(pipeline_size > 0);
-        self.pipeline_size = pipeline_size;
-        self
-    }
-}
-
 /// Axum handler for jsonrpc over websocket.
 ///
 /// This supports regular jsonrpc calls and notifications, as well as
 /// `subscribe` and `unsubscribe` added via [`add_subscribe_and_unsubscribe`].
 pub async fn handle_jsonrpc_ws<T: Metadata + From<Session>>(
-    Extension(io): Extension<MetaIoHandler<T>>,
-    Extension(config): Extension<Arc<WebSocketConfig>>,
+    Extension(io): Extension<Arc<MetaIoHandler<T>>>,
+    Extension(config): Extension<StreamServerConfig>,
     ws: WebSocketUpgrade,
 ) -> impl IntoResponse {
-    static SESSION_ID: AtomicU64 = AtomicU64::new(0);
-
     ws.on_upgrade(move |socket| async move {
-        let (tx, mut rx) = channel(config.channel_size);
-        let session = Session {
-            id: SESSION_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
-            raw_tx: tx,
-        };
-        let (mut socket_write, socket_read) = socket.split();
-        let mut result_stream = socket_read
-            .map(|message_or_err| async {
-                let msg = if let Ok(msg) = message_or_err {
-                    msg
-                } else {
-                    return Err(());
-                };
-                let msg = match msg {
-                    Message::Text(msg) => msg,
-                    _ => return Ok(None),
-                };
-                Ok(io.handle_request(&msg, session.clone().into()).await)
-            })
-            .buffer_unordered(config.pipeline_size);
-        loop {
-            tokio::select! {
-                Some(Ok(option_result)) = result_stream.next() => {
-                    if let Some(result) = option_result {
-                        if socket_write.send(Message::Text(result)).await.is_err() {
-                            break;
-                        }
-                    }
-                }
-                Some(msg) = rx.recv() => {
-                    if socket_write.send(Message::Text(msg)).await.is_err() {
-                        break;
-                    }
-                }
-                else => break,
+        let (socket_write, socket_read) = socket.split();
+        let write = socket_write
+            .with(|msg: String| async move { Ok::<_, axum::Error>(Message::Text(msg)) });
+        let read = socket_read.filter_map(|msg| async move {
+            match msg {
+                Ok(Message::Text(t)) => Some(Ok(t)),
+                Ok(_) => None,
+                Err(e) => Some(Err(e)),
             }
-        }
+        });
+        tokio::pin!(write);
+        tokio::pin!(read);
+        serve_stream_sink(write, read, &io, config).await
     })
 }
 
@@ -141,8 +73,8 @@ pub async fn handle_jsonrpc_ws<T: Metadata + From<Session>>(
 /// websocket connections.
 pub fn jsonrpc_router(
     path: &str,
-    rpc: MetaIoHandler<Option<Session>>,
-    config: impl Into<Arc<WebSocketConfig>>,
+    rpc: Arc<MetaIoHandler<Option<Session>>>,
+    websocket_config: StreamServerConfig,
 ) -> Router {
     Router::new()
         .route(
@@ -150,5 +82,5 @@ pub fn jsonrpc_router(
             post(handle_jsonrpc::<Option<Session>>).get(handle_jsonrpc_ws::<Option<Session>>),
         )
         .layer(Extension(rpc))
-        .layer(Extension(config.into()))
+        .layer(Extension(websocket_config))
 }

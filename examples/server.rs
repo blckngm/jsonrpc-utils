@@ -1,11 +1,16 @@
-use std::{pin::Pin, time::Duration};
+//! Example HTTP, WebSocket and TCP JSON-RPC server.
+
+use std::{pin::Pin, sync::Arc, time::Duration};
 
 use futures_core::Stream;
 use jsonrpc_core::{MetaIoHandler, Params};
 use jsonrpc_utils::{
-    axum::{jsonrpc_router, WebSocketConfig},
+    axum::jsonrpc_router,
     pubsub::{add_pubsub, PubSub, PublishMsg},
+    stream::{serve_stream_sink, StreamServerConfig},
 };
+use tokio::net::TcpListener;
+use tokio_util::codec::{FramedRead, FramedWrite, LinesCodec};
 
 struct Publisher {}
 
@@ -44,13 +49,36 @@ async fn main() {
         "subscription".into(),
         "unsubscribe",
     );
-    let config = WebSocketConfig::default()
+    let rpc = Arc::new(rpc);
+    let stream_config = StreamServerConfig::default()
         .with_channel_size(4)
         .with_pipeline_size(4);
-    let app = jsonrpc_router("/rpc", rpc, config);
 
-    axum::Server::bind(&"0.0.0.0:3000".parse().unwrap())
-        .serve(app.into_make_service())
-        .await
-        .unwrap();
+    // HTTP and WS server.
+    let app = jsonrpc_router("/rpc", rpc.clone(), stream_config.clone());
+    // You can use additional tower-http middlewares to add e.g. CORS.
+    tokio::spawn(async move {
+        axum::Server::bind(&"0.0.0.0:3000".parse().unwrap())
+            .serve(app.into_make_service())
+            .await
+            .unwrap();
+    });
+
+    // TCP server with line delimited json codec.
+    //
+    // You can also use other transports (e.g. TLS, unix socket) and codecs
+    // (e.g. netstring, JSON splitter).
+    let listener = TcpListener::bind("0.0.0.0:3001").await.unwrap();
+    let codec = LinesCodec::new_with_max_length(2 * 1024 * 1024);
+    while let Ok((s, _)) = listener.accept().await {
+        let rpc = rpc.clone();
+        let stream_config = stream_config.clone();
+        let codec = codec.clone();
+        tokio::spawn(async move {
+            let (r, w) = s.into_split();
+            let r = FramedRead::new(r, codec.clone());
+            let w = FramedWrite::new(w, codec);
+            serve_stream_sink(w, r, &rpc, stream_config).await;
+        });
+    }
 }
