@@ -57,6 +57,7 @@ impl<T: PubSub> PubSub for Arc<T> {
 impl<'a, T: PubSub> PubSub for &'a T {
     type Stream = T::Stream;
 
+    // TODO: more flexible handling of stream ending.
     fn subscribe(&self, params: Params) -> Result<Self::Stream, jsonrpc_core::Error> {
         T::subscribe(self, params)
     }
