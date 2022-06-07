@@ -4,25 +4,26 @@ use futures_core::Stream;
 use jsonrpc_core::{MetaIoHandler, Params};
 use jsonrpc_utils::{
     axum::{jsonrpc_router, WebSocketConfig},
-    pubsub::{add_subscribe_and_unsubscribe, PubSub},
+    pubsub::{add_pubsub, PubSub, PublishMsg},
 };
 
 struct Publisher {}
 
 impl PubSub for Publisher {
-    type Stream = Pin<Box<dyn Stream<Item = String> + Send>>;
+    type Stream = Pin<Box<dyn Stream<Item = PublishMsg> + Send>>;
 
     fn subscribe(&self, params: Params) -> Result<Self::Stream, jsonrpc_core::Error> {
         let (interval,): (u64,) = params.parse()?;
         if interval > 0 {
             Ok(Box::pin(async_stream::stream! {
-                loop {
+                for i in 0..10 {
                     tokio::time::sleep(Duration::from_secs(interval)).await;
-                    yield "interval".into();
+                    yield PublishMsg::result(&i).unwrap();
                 }
+                yield PublishMsg::error_raw_json("\"ended\"");
             }))
         } else {
-            Err(jsonrpc_core::Error::invalid_params("unknown topic"))
+            Err(jsonrpc_core::Error::invalid_params("invalid interval"))
         }
     }
 }
@@ -36,7 +37,7 @@ async fn main() {
         tokio::time::sleep(Duration::from_secs(x)).await;
         Ok(x.into())
     });
-    add_subscribe_and_unsubscribe(
+    add_pubsub(
         &mut rpc,
         publisher,
         "subscribe",

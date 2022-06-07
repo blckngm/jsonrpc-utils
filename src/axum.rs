@@ -116,7 +116,6 @@ pub async fn handle_jsonrpc_ws<T: Metadata + From<Session>>(
             .buffer_unordered(config.pipeline_size);
         loop {
             tokio::select! {
-                // TODO: next may not be cancel safe.
                 Some(Ok(option_result)) = result_stream.next() => {
                     if let Some(result) = option_result {
                         if socket_write.send(Message::Text(result)).await.is_err() {
@@ -124,7 +123,7 @@ pub async fn handle_jsonrpc_ws<T: Metadata + From<Session>>(
                         }
                     }
                 }
-                Some(Some(msg)) = rx.recv() => {
+                Some(msg) = rx.recv() => {
                     if socket_write.send(Message::Text(msg)).await.is_err() {
                         break;
                     }
