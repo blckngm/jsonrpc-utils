@@ -13,7 +13,7 @@ use jsonrpc_core::{MetaIoHandler, Metadata};
 
 use crate::{
     pubsub::Session,
-    stream::{serve_stream_sink, StreamServerConfig},
+    stream::{serve_stream_sink, StreamMsg, StreamServerConfig},
 };
 
 /// Axum handler to handle HTTP jsonrpc request.
@@ -51,18 +51,24 @@ pub async fn handle_jsonrpc_ws<T: Metadata + From<Session>>(
 ) -> impl IntoResponse {
     ws.on_upgrade(move |socket| async move {
         let (socket_write, socket_read) = socket.split();
-        let write = socket_write
-            .with(|msg: String| async move { Ok::<_, axum::Error>(Message::Text(msg)) });
+        let write = socket_write.with(|msg: StreamMsg| async move {
+            Ok::<_, axum::Error>(match msg {
+                StreamMsg::Str(msg) => Message::Text(msg),
+                StreamMsg::Ping => Message::Ping(b"ping".to_vec()),
+                StreamMsg::Pong => Message::Pong(vec![]),
+            })
+        });
         let read = socket_read.filter_map(|msg| async move {
             match msg {
-                Ok(Message::Text(t)) => Some(Ok(t)),
+                Ok(Message::Text(t)) => Some(Ok(StreamMsg::Str(t))),
+                Ok(Message::Pong(_)) => Some(Ok(StreamMsg::Pong)),
                 Ok(_) => None,
                 Err(e) => Some(Err(e)),
             }
         });
         tokio::pin!(write);
         tokio::pin!(read);
-        serve_stream_sink(write, read, &io, config).await
+        serve_stream_sink(&io, write, read, config).await
     })
 }
 

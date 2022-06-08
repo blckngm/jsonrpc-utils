@@ -130,14 +130,24 @@ pub fn add_pubsub(
                     let id = id.clone();
                     let subscriptions = subscriptions.clone();
                     async move {
-                        // TODO: select raw_tx.closed().
-                        while let Some(msg) = stream.next().await {
-                            let msg = format_msg(&id, &notify_method, msg);
-                            if session.raw_tx.send(msg).await.is_err() {
-                                break;
+                        loop {
+                            tokio::select! {
+                                msg = stream.next() => {
+                                    match msg {
+                                        Some(msg) => {
+                                            let msg = format_msg(&id, &notify_method, msg);
+                                            if session.raw_tx.send(msg).await.is_err() {
+                                                break;
+                                            }
+                                        }
+                                        None => break,
+                                    }
+                                }
+                                _ = session.raw_tx.closed() => {
+                                    break;
+                                }
                             }
                         }
-                        // Stream closed.
                         subscriptions.lock().unwrap().remove(&(session_id, id));
                     }
                 });

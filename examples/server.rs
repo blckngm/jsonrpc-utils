@@ -3,14 +3,15 @@
 use std::{pin::Pin, sync::Arc, time::Duration};
 
 use futures_core::Stream;
+use futures_util::{SinkExt, TryStreamExt};
 use jsonrpc_core::{MetaIoHandler, Params};
 use jsonrpc_utils::{
     axum::jsonrpc_router,
     pubsub::{add_pubsub, PubSub, PublishMsg},
-    stream::{serve_stream_sink, StreamServerConfig},
+    stream::{serve_stream_sink, StreamMsg, StreamServerConfig},
 };
 use tokio::net::TcpListener;
-use tokio_util::codec::{FramedRead, FramedWrite, LinesCodec};
+use tokio_util::codec::{FramedRead, FramedWrite, LinesCodec, LinesCodecError};
 
 struct Publisher {}
 
@@ -55,7 +56,8 @@ async fn main() {
         .with_pipeline_size(4);
 
     // HTTP and WS server.
-    let app = jsonrpc_router("/rpc", rpc.clone(), stream_config.clone());
+    let ws_config = stream_config.clone().with_keep_alive(true);
+    let app = jsonrpc_router("/rpc", rpc.clone(), ws_config);
     // You can use additional tower-http middlewares to add e.g. CORS.
     tokio::spawn(async move {
         axum::Server::bind(&"0.0.0.0:3000".parse().unwrap())
@@ -76,9 +78,15 @@ async fn main() {
         let codec = codec.clone();
         tokio::spawn(async move {
             let (r, w) = s.into_split();
-            let r = FramedRead::new(r, codec.clone());
-            let w = FramedWrite::new(w, codec);
-            serve_stream_sink(w, r, &rpc, stream_config).await;
+            let r = FramedRead::new(r, codec.clone()).map_ok(StreamMsg::Str);
+            let w = FramedWrite::new(w, codec).with(|msg| async move {
+                Ok::<_, LinesCodecError>(match msg {
+                    StreamMsg::Str(msg) => msg,
+                    _ => "".into(),
+                })
+            });
+            tokio::pin!(w);
+            serve_stream_sink(&rpc, w, r, stream_config).await;
         });
     }
 }
