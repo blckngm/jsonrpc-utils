@@ -3,6 +3,8 @@ name = "jsonrpc-utils"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
+repository = "https://github.com/sopium/jsonrpc-utils"
+description = "Alternative pub/sub and server implementations for jsonrpc-core"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
