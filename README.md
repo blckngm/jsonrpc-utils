@@ -31,8 +31,6 @@ The `async-stream` crate can be used to create streams with async-await. Or you
 can use tokio-stream `ReceiverStream`/`BroadcastStream` and futures-util
 `StreamExt`/`TryStreamExt` combinators.
 
-TODO: broadcast best practices.
-
 # Servers
 
 Axum HTTP POST and WebSocket router is provided. HTTP POST and WebSocket can be
@@ -45,4 +43,5 @@ with e.g. tokio-util `FramedRead`/`FramedWrite`.
 
 # Example
 
-See `examples/server.rs`.
+- [HTTP, WebSocket and TCP server](examples/server.rs)
+- [Broadcast](examples/broadcast.rs)
