@@ -3,11 +3,12 @@ other than pub/sub is still supported.
 
 # Pub/Sub
 
-Implement `PubSub` and return a `Stream` or an error according to the params:
+Implement the `PubSub` trait or use a closure. Return a `Stream` or an error
+according to the params:
 
 ```rust
 pub trait PubSub {
-    type Stream: Stream<Item = PublishMsg> + Unpin + Send;
+    type Stream: Stream<Item = PublishMsg> + Send;
 
     fn subscribe(&self, params: Params) -> Result<Self::Stream, jsonrpc_core::Error>;
 }

@@ -82,9 +82,19 @@ impl PublishMsg {
 ///
 /// Or use the async-stream crate to implement streams with async-await. See the example server.
 pub trait PubSub {
-    type Stream: Stream<Item = PublishMsg> + Unpin + Send;
+    type Stream: Stream<Item = PublishMsg> + Send;
 
     fn subscribe(&self, params: Params) -> Result<Self::Stream, jsonrpc_core::Error>;
+}
+
+impl<F: Fn(Params) -> Result<S, jsonrpc_core::Error>, S: Stream<Item = PublishMsg> + Send> PubSub
+    for F
+{
+    type Stream = S;
+
+    fn subscribe(&self, params: Params) -> Result<Self::Stream, jsonrpc_core::Error> {
+        (self)(params)
+    }
 }
 
 impl<T: PubSub> PubSub for Arc<T> {
@@ -95,23 +105,15 @@ impl<T: PubSub> PubSub for Arc<T> {
     }
 }
 
-impl<'a, T: PubSub> PubSub for &'a T {
-    type Stream = T::Stream;
-
-    fn subscribe(&self, params: Params) -> Result<Self::Stream, jsonrpc_core::Error> {
-        T::subscribe(self, params)
-    }
-}
-
 /// Add subscribe and unsubscribe methods to the jsonrpc handler.
 ///
 /// `notify_method` should have already been escaped for JSON string.
 pub fn add_pubsub(
     io: &mut MetaIoHandler<Option<Session>>,
-    pubsub: impl PubSub + Clone + Send + Sync + 'static,
     subscribe_method: &str,
     notify_method: Arc<str>,
     unsubscribe_method: &str,
+    pubsub: impl PubSub + Clone + Send + Sync + 'static,
 ) {
     let subscriptions0 = Arc::new(Mutex::new(HashMap::new()));
     let subscriptions = subscriptions0.clone();
@@ -125,11 +127,12 @@ pub fn add_pubsub(
                 let session = session.ok_or_else(jsonrpc_core::Error::method_not_found)?;
                 let session_id = session.id;
                 let id = generate_id();
-                let mut stream = pubsub.subscribe(params)?;
+                let stream = pubsub.subscribe(params)?;
                 let handle = tokio::spawn({
                     let id = id.clone();
                     let subscriptions = subscriptions.clone();
                     async move {
+                        tokio::pin!(stream);
                         loop {
                             tokio::select! {
                                 msg = stream.next() => {
@@ -198,8 +201,6 @@ fn format_msg(id: &str, method: &str, msg: PublishMsg) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::pin::Pin;
-
     use async_stream::stream;
     use jsonrpc_core::{Call, Id, MethodCall, Output, Version};
     use tokio::sync::mpsc::channel;
@@ -214,22 +215,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_pubsub() {
-        struct Publisher {}
-
-        impl PubSub for Publisher {
-            type Stream = Pin<Box<dyn Stream<Item = PublishMsg> + Send>>;
-
-            fn subscribe(&self, _params: Params) -> Result<Self::Stream, jsonrpc_core::Error> {
-                Ok(Box::pin(stream! {
-                    yield PublishMsg::result(&1).unwrap();
-                    yield PublishMsg::result(&1).unwrap();
-                }))
-            }
-        }
-        static PUBLISHER: Publisher = Publisher {};
-
         let mut rpc = MetaIoHandler::with_compatibility(jsonrpc_core::Compatibility::V2);
-        add_pubsub(&mut rpc, &PUBLISHER, "sub", "notify".into(), "unsub");
+        add_pubsub(&mut rpc, "sub", "notify".into(), "unsub", |_params| {
+            Ok(stream! {
+                yield PublishMsg::result(&1).unwrap();
+                yield PublishMsg::result(&1).unwrap();
+            })
+        });
         let (raw_tx, mut rx) = channel(1);
         let response = rpc
             .handle_call(
