@@ -76,7 +76,7 @@ async fn main() {
                 })
             });
             tokio::pin!(w);
-            serve_stream_sink(&rpc, w, r, stream_config).await;
+            drop(serve_stream_sink(&rpc, w, r, stream_config).await);
         });
     }
 }

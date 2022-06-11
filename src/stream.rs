@@ -96,10 +96,10 @@ pub enum StreamMsg {
 /// TODO: document keepalive mechanism.
 pub async fn serve_stream_sink<E, T: Metadata + From<Session>>(
     rpc: &MetaIoHandler<T>,
-    mut sink: impl Sink<StreamMsg> + Unpin,
+    mut sink: impl Sink<StreamMsg, Error = E> + Unpin,
     stream: impl Stream<Item = Result<StreamMsg, E>> + Unpin,
     config: StreamServerConfig,
-) {
+) -> Result<(), E> {
     static SESSION_ID: AtomicU64 = AtomicU64::new(0);
 
     let (tx, mut rx) = channel(config.channel_size);
@@ -116,27 +116,21 @@ pub async fn serve_stream_sink<E, T: Metadata + From<Session>>(
 
     let mut result_stream = stream
         .map(|message_or_err| async {
-            let msg = if let Ok(msg) = message_or_err {
-                msg
-            } else {
-                return Err(());
-            };
+            let msg = message_or_err?;
             let msg = match msg {
                 StreamMsg::Str(msg) => msg,
                 _ => return Ok(None),
             };
-            Ok(rpc.handle_request(&msg, session.clone().into()).await)
+            Ok::<_, E>(rpc.handle_request(&msg, session.clone().into()).await)
         })
         .buffer_unordered(config.pipeline_size);
     loop {
         tokio::select! {
             result = result_stream.next() => {
                 match result {
-                    Some(Ok(opt_result)) => {
-                        if let Some(result) = opt_result {
-                            if sink.send(StreamMsg::Str(result)).await.is_err() {
-                                break;
-                            }
+                    Some(result) => {
+                        if let Some(result) = result? {
+                            sink.send(StreamMsg::Str(result)).await?;
                         }
                         if config.keep_alive {
                             dead_timer
@@ -149,18 +143,15 @@ pub async fn serve_stream_sink<E, T: Metadata + From<Session>>(
             }
             // This will never be None.
             Some(msg) = rx.recv() => {
-                if sink.send(StreamMsg::Str(msg)).await.is_err() {
-                    break;
-                }
+                sink.send(StreamMsg::Str(msg)).await?;
             }
             _ = &mut dead_timer, if config.keep_alive => {
                 break;
             }
             _ = ping_interval.tick(), if config.keep_alive => {
-                if sink.send(StreamMsg::Ping).await.is_err() {
-                    break;
-                }
+                sink.send(StreamMsg::Ping).await?;
             }
         }
     }
+    Ok(())
 }

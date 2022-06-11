@@ -68,7 +68,7 @@ pub async fn handle_jsonrpc_ws<T: Metadata + From<Session>>(
         });
         tokio::pin!(write);
         tokio::pin!(read);
-        serve_stream_sink(&io, write, read, config).await
+        drop(serve_stream_sink(&io, write, read, config).await);
     })
 }
 
