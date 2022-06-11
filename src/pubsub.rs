@@ -128,6 +128,7 @@ pub fn add_pubsub(
                 let session_id = session.id;
                 let id = generate_id();
                 let stream = pubsub.subscribe(params)?;
+                let stream = terminate_after_one_error(stream);
                 let handle = tokio::spawn({
                     let id = id.clone();
                     let subscriptions = subscriptions.clone();
@@ -196,6 +197,47 @@ fn format_msg(id: &str, method: &str, msg: PublishMsg) -> String {
             r#"{{"jsonrpc":"2.0","method":"{}","params":{{"subscription":"{}","error":{}}}}}"#,
             method, id, msg.value,
         ),
+    }
+}
+
+pin_project_lite::pin_project! {
+    struct TerminateAfterOneError<S> {
+        #[pin]
+        inner: S,
+        has_error: bool,
+    }
+}
+
+impl<S> Stream for TerminateAfterOneError<S>
+where
+    S: Stream<Item = PublishMsg>,
+{
+    type Item = PublishMsg;
+
+    fn poll_next(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        if self.has_error {
+            return None.into();
+        }
+        let proj = self.project();
+        match futures_core::ready!(proj.inner.poll_next(cx)) {
+            None => None.into(),
+            Some(msg) => {
+                if msg.is_err {
+                    *proj.has_error = true;
+                }
+                Some(msg).into()
+            }
+        }
+    }
+}
+
+fn terminate_after_one_error<S>(s: S) -> TerminateAfterOneError<S> {
+    TerminateAfterOneError {
+        inner: s,
+        has_error: false,
     }
 }
 
@@ -285,5 +327,15 @@ mod tests {
             _ => unreachable!(),
         };
         assert!(result.as_bool().unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_terminate_after_one_error() {
+        let s = terminate_after_one_error(futures_util::stream::iter([
+            PublishMsg::result_raw_json(""),
+            PublishMsg::error_raw_json(""),
+            PublishMsg::result_raw_json(""),
+        ]));
+        assert_eq!(s.count().await, 2);
     }
 }
