@@ -34,7 +34,7 @@ pub async fn handle_jsonrpc<T: Default + Metadata>(
     };
 
     if let Some(r) = io.handle_request(req, T::default()).await {
-        Json(r).into_response()
+        ([(axum::http::header::CONTENT_TYPE, "application/json")], r).into_response()
     } else {
         StatusCode::NO_CONTENT.into_response()
     }
