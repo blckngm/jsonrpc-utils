@@ -1,5 +1,8 @@
+//! Pub/Sub support.
+
 use std::{
     collections::HashMap,
+    marker::PhantomData,
     sync::{Arc, Mutex},
 };
 
@@ -30,27 +33,45 @@ fn generate_id() -> String {
 
 /// Inner message published to subscribers.
 #[derive(Clone)]
-pub struct PublishMsg {
+pub struct PublishMsg<T> {
     is_err: bool,
     // Make clone cheap.
     value: Arc<str>,
+    phantom: PhantomData<T>,
 }
 
-impl PublishMsg {
+impl<T: Serialize> PublishMsg<T> {
     /// Create a new “result” message by serializing the value into JSON.
-    pub fn result(value: &impl Serialize) -> Result<Self, jsonrpc_core::serde_json::Error> {
-        Ok(Self {
-            is_err: false,
-            value: jsonrpc_core::serde_json::to_string(value)?.into(),
-        })
+    ///
+    /// If serialization fails, an “error” message is created returned instead.
+    pub fn result(value: &T) -> Self {
+        match jsonrpc_core::serde_json::to_string(value) {
+            Ok(value) => Self {
+                is_err: false,
+                value: value.into(),
+                phantom: PhantomData,
+            },
+            Err(_) => Self::error(&jsonrpc_core::Error {
+                code: jsonrpc_core::ErrorCode::InternalError,
+                message: "".into(),
+                data: None,
+            }),
+        }
     }
+}
 
+impl<T> PublishMsg<T> {
     /// Create a new “error” message by serializing the JSONRPC error object.
-    pub fn error(err: &jsonrpc_core::Error) -> Result<Self, jsonrpc_core::serde_json::Error> {
-        Ok(Self {
+    ///
+    /// # Panics
+    ///
+    /// If serializing the error fails.
+    pub fn error(err: &jsonrpc_core::Error) -> Self {
+        Self {
             is_err: true,
-            value: jsonrpc_core::serde_json::to_string(err)?.into(),
-        })
+            value: jsonrpc_core::serde_json::to_string(err).unwrap().into(),
+            phantom: PhantomData,
+        }
     }
 
     /// Create a new “result” message.
@@ -60,6 +81,7 @@ impl PublishMsg {
         Self {
             is_err: false,
             value: value.into(),
+            phantom: PhantomData,
         }
     }
 
@@ -70,6 +92,7 @@ impl PublishMsg {
         Self {
             is_err: true,
             value: value.into(),
+            phantom: PhantomData,
         }
     }
 }
@@ -81,14 +104,16 @@ impl PublishMsg {
 /// Stream wrappers from tokio-stream can be used, e.g. `BroadcastStream`.
 ///
 /// Or use the async-stream crate to implement streams with async-await. See the example server.
-pub trait PubSub {
-    type Stream: Stream<Item = PublishMsg> + Send;
+pub trait PubSub<T> {
+    type Stream: Stream<Item = PublishMsg<T>> + Send;
 
     fn subscribe(&self, params: Params) -> Result<Self::Stream, jsonrpc_core::Error>;
 }
 
-impl<F: Fn(Params) -> Result<S, jsonrpc_core::Error>, S: Stream<Item = PublishMsg> + Send> PubSub
-    for F
+impl<T, F, S> PubSub<T> for F
+where
+    F: Fn(Params) -> Result<S, jsonrpc_core::Error>,
+    S: Stream<Item = PublishMsg<T>> + Send,
 {
     type Stream = S;
 
@@ -97,23 +122,29 @@ impl<F: Fn(Params) -> Result<S, jsonrpc_core::Error>, S: Stream<Item = PublishMs
     }
 }
 
-impl<T: PubSub> PubSub for Arc<T> {
-    type Stream = T::Stream;
+impl<T, P: PubSub<T>> PubSub<T> for Arc<P> {
+    type Stream = P::Stream;
 
     fn subscribe(&self, params: Params) -> Result<Self::Stream, jsonrpc_core::Error> {
-        T::subscribe(&*self, params)
+        P::subscribe(&*self, params)
     }
 }
 
 /// Add subscribe and unsubscribe methods to the jsonrpc handler.
 ///
 /// `notify_method` should have already been escaped for JSON string.
-pub fn add_pubsub(
+///
+/// Respond to subscription calls with a stream or an error. If a stream is
+/// returned, a subscription id is automatically generated. Any results produced
+/// by the stream will be sent to the client along with the subscription id. The
+/// stream is dropped if the client calls the unsubscribe method with the
+/// subscription id or if it is disconnected.
+pub fn add_pub_sub<T: Send + 'static>(
     io: &mut MetaIoHandler<Option<Session>>,
     subscribe_method: &str,
     notify_method: Arc<str>,
     unsubscribe_method: &str,
-    pubsub: impl PubSub + Clone + Send + Sync + 'static,
+    pubsub: impl PubSub<T> + Clone + Send + Sync + 'static,
 ) {
     let subscriptions0 = Arc::new(Mutex::new(HashMap::new()));
     let subscriptions = subscriptions0.clone();
@@ -187,7 +218,7 @@ pub fn add_pubsub(
     );
 }
 
-fn format_msg(id: &str, method: &str, msg: PublishMsg) -> String {
+fn format_msg<T>(id: &str, method: &str, msg: PublishMsg<T>) -> String {
     match msg.is_err {
         false => format!(
             r#"{{"jsonrpc":"2.0","method":"{}","params":{{"subscription":"{}","result":{}}}}}"#,
@@ -208,11 +239,11 @@ pin_project_lite::pin_project! {
     }
 }
 
-impl<S> Stream for TerminateAfterOneError<S>
+impl<S, T> Stream for TerminateAfterOneError<S>
 where
-    S: Stream<Item = PublishMsg>,
+    S: Stream<Item = PublishMsg<T>>,
 {
-    type Item = PublishMsg;
+    type Item = PublishMsg<T>;
 
     fn poll_next(
         self: std::pin::Pin<&mut Self>,
@@ -258,10 +289,10 @@ mod tests {
     #[tokio::test]
     async fn test_pubsub() {
         let mut rpc = MetaIoHandler::with_compatibility(jsonrpc_core::Compatibility::V2);
-        add_pubsub(&mut rpc, "sub", "notify".into(), "unsub", |_params| {
+        add_pub_sub(&mut rpc, "sub", "notify".into(), "unsub", |_params| {
             Ok(stream! {
-                yield PublishMsg::result(&1).unwrap();
-                yield PublishMsg::result(&1).unwrap();
+                yield PublishMsg::result(&1);
+                yield PublishMsg::result(&1);
             })
         });
         let (raw_tx, mut rx) = channel(1);
@@ -332,7 +363,7 @@ mod tests {
     #[tokio::test]
     async fn test_terminate_after_one_error() {
         let s = terminate_after_one_error(futures_util::stream::iter([
-            PublishMsg::result_raw_json(""),
+            PublishMsg::<u64>::result_raw_json(""),
             PublishMsg::error_raw_json(""),
             PublishMsg::result_raw_json(""),
         ]));

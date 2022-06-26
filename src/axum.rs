@@ -1,3 +1,4 @@
+//! Axum JSONRPC handlers.
 use std::sync::Arc;
 
 use axum::{
@@ -12,11 +13,11 @@ use futures_util::{SinkExt, StreamExt};
 use jsonrpc_core::{MetaIoHandler, Metadata};
 
 use crate::{
-    pubsub::Session,
+    pub_sub::Session,
     stream::{serve_stream_sink, StreamMsg, StreamServerConfig},
 };
 
-/// Axum handler to handle HTTP jsonrpc request.
+/// Axum handler for HTTP POST JSONRPC requests.
 pub async fn handle_jsonrpc<T: Default + Metadata>(
     Extension(io): Extension<Arc<MetaIoHandler<T>>>,
     req_body: Bytes,
@@ -40,10 +41,10 @@ pub async fn handle_jsonrpc<T: Default + Metadata>(
     }
 }
 
-/// Axum handler for jsonrpc over websocket.
+/// Axum handler for JSONRPC over WebSocket.
 ///
-/// This supports regular jsonrpc calls and notifications, as well as
-/// `subscribe` and `unsubscribe` added via [`add_subscribe_and_unsubscribe`].
+/// This supports regular jsonrpc calls and notifications, as well as pub/sub
+/// with [`mod@crate::pub_sub`].
 pub async fn handle_jsonrpc_ws<T: Metadata + From<Session>>(
     Extension(io): Extension<Arc<MetaIoHandler<T>>>,
     Extension(config): Extension<StreamServerConfig>,
@@ -72,11 +73,11 @@ pub async fn handle_jsonrpc_ws<T: Metadata + From<Session>>(
     })
 }
 
-/// Returns an axum Router that handles jsonrpc requests at the specified
-/// `path`. Both HTTP and websocket are supported.
+/// Returns an axum Router that handles JSONRPC requests at the specified
+/// `path`. Both HTTP and WebSocket are supported.
 ///
-/// Subscription added via [`add_subscribe_and_unsubscribe`] is supported on
-/// websocket connections.
+/// Subscription added via [`mod@crate::pub_sub`] is supported on WebSocket
+/// connections.
 pub fn jsonrpc_router(
     path: &str,
     rpc: Arc<MetaIoHandler<Option<Session>>>,

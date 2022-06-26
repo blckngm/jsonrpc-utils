@@ -8,7 +8,20 @@ description = "Alternative pub/sub and server implementations for jsonrpc-core"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[workspace]
+
+[features]
+default = ["macros"]
+macros = ["jsonrpc-utils-macros", "anyhow"]
+client = ["reqwest", "anyhow"]
+blocking-client = ["reqwest/blocking", "anyhow"]
+
+[package.metadata.docs.rs]
+all-features = true
+cargo-args = ["-Zunstable-options", "-Zrustdoc-scrape-examples=examples"]
+
 [dependencies]
+jsonrpc-utils-macros = { path = "./jsonrpc-utils-macros", optional = true }
 axum = { version = "0.5.6", features = ["ws"] }
 futures-core = "0.3.21"
 futures-util = "0.3.21"
@@ -17,9 +30,13 @@ jsonrpc-core = "18.0.0"
 pin-project-lite = "0.2.9"
 rand = "0.8.5"
 tokio = { version = "1.19.0", features = ["sync", "macros"] }
+serde_json = { version = "1.0.81", features = ["raw_value"] }
+reqwest = { version = "0.11.11", optional = true, default-features = false }
+anyhow = { version = "1.0.57", optional = true }
 
 [dev-dependencies]
 async-stream = "0.3.3"
 tokio = { version = "1.19.0", features = ["rt-multi-thread"] }
 tokio-stream = { version = "0.1.9", features = ["sync"] }
 tokio-util = { version = "0.7.3", features = ["codec"] }
+async-trait = "0.1.56"

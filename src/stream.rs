@@ -1,3 +1,8 @@
+//! JSONRPC server on any streams, e.g. TCP, unix socket.
+//!
+//! Use `tokio_util::codec` to convert `AsyncRead`, `AsyncWrite` to `Stream`
+//! and `Sink`. Use `LinesCodec` or define you own codec.
+
 use std::{sync::atomic::AtomicU64, time::Duration};
 
 use futures_core::Stream;
@@ -5,7 +10,7 @@ use futures_util::{Sink, SinkExt, StreamExt};
 use jsonrpc_core::{MetaIoHandler, Metadata};
 use tokio::{sync::mpsc::channel, time::Instant};
 
-use crate::pubsub::Session;
+use crate::pub_sub::Session;
 
 #[derive(Clone)]
 pub struct StreamServerConfig {

@@ -1,4 +1,4 @@
-//! Example HTTP, WebSocket and TCP JSON-RPC server.
+//! Example pub/sub server with broadcast.
 
 use std::{sync::Arc, time::Duration};
 
@@ -6,7 +6,7 @@ use futures_util::StreamExt;
 use jsonrpc_core::{MetaIoHandler, Params};
 use jsonrpc_utils::{
     axum::jsonrpc_router,
-    pubsub::{add_pubsub, PublishMsg},
+    pub_sub::{add_pub_sub, PublishMsg},
     stream::StreamServerConfig,
 };
 use tokio::sync::broadcast;
@@ -24,12 +24,12 @@ async fn main() {
                 //
                 // It is recommended to broadcast already serialized
                 // `PublishMsg`. This way it only need to serialized once.
-                drop(tx.send(PublishMsg::result(&i).unwrap()));
+                drop(tx.send(PublishMsg::result(&i)));
                 tokio::time::sleep(Duration::from_secs(1)).await;
             }
         }
     });
-    add_pubsub(
+    add_pub_sub(
         &mut rpc,
         "subscribe",
         "subscription".into(),
@@ -37,10 +37,11 @@ async fn main() {
         move |_params: Params| {
             Ok(BroadcastStream::new(tx.subscribe()).map(|result| {
                 result.unwrap_or_else(|_| {
-                    PublishMsg::error(&jsonrpc_core::Error::new(
-                        jsonrpc_core::ErrorCode::ServerError(-32000),
-                    ))
-                    .unwrap()
+                    PublishMsg::error(&jsonrpc_core::Error {
+                        code: jsonrpc_core::ErrorCode::ServerError(-32000),
+                        message: "lagged".into(),
+                        data: None,
+                    })
                 })
             }))
         },

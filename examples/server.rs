@@ -6,7 +6,7 @@ use futures_util::{SinkExt, TryStreamExt};
 use jsonrpc_core::{MetaIoHandler, Params};
 use jsonrpc_utils::{
     axum::jsonrpc_router,
-    pubsub::{add_pubsub, PublishMsg},
+    pub_sub::{add_pub_sub, PublishMsg},
     stream::{serve_stream_sink, StreamMsg, StreamServerConfig},
 };
 use tokio::net::TcpListener;
@@ -20,7 +20,7 @@ async fn main() {
         tokio::time::sleep(Duration::from_secs(x)).await;
         Ok(x.into())
     });
-    add_pubsub(
+    add_pub_sub(
         &mut rpc,
         "subscribe",
         "subscription".into(),
@@ -31,9 +31,13 @@ async fn main() {
                 Ok(async_stream::stream! {
                     for i in 0..10 {
                         tokio::time::sleep(Duration::from_secs(interval)).await;
-                        yield PublishMsg::result(&i).unwrap();
+                        yield PublishMsg::result(&i);
                     }
-                    yield PublishMsg::error_raw_json("\"ended\"");
+                    yield PublishMsg::error(&jsonrpc_core::Error {
+                        code: jsonrpc_core::ErrorCode::ServerError(-32000),
+                        message: "ended".into(),
+                        data: None,
+                    });
                 })
             } else {
                 Err(jsonrpc_core::Error::invalid_params("invalid interval"))
