@@ -23,7 +23,7 @@ async fn main() {
     add_pub_sub(
         &mut rpc,
         "subscribe",
-        "subscription".into(),
+        "subscription",
         "unsubscribe",
         |params: Params| {
             let (interval,): (u64,) = params.parse()?;

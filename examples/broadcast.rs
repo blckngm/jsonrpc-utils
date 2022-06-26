@@ -32,7 +32,7 @@ async fn main() {
     add_pub_sub(
         &mut rpc,
         "subscribe",
-        "subscription".into(),
+        "subscription",
         "unsubscribe",
         move |_params: Params| {
             Ok(BroadcastStream::new(tx.subscribe()).map(|result| {

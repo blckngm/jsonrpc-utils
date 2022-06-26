@@ -132,8 +132,6 @@ impl<T, P: PubSub<T>> PubSub<T> for Arc<P> {
 
 /// Add subscribe and unsubscribe methods to the jsonrpc handler.
 ///
-/// `notify_method` should have already been escaped for JSON string.
-///
 /// Respond to subscription calls with a stream or an error. If a stream is
 /// returned, a subscription id is automatically generated. Any results produced
 /// by the stream will be sent to the client along with the subscription id. The
@@ -142,12 +140,13 @@ impl<T, P: PubSub<T>> PubSub<T> for Arc<P> {
 pub fn add_pub_sub<T: Send + 'static>(
     io: &mut MetaIoHandler<Option<Session>>,
     subscribe_method: &str,
-    notify_method: Arc<str>,
+    notify_method: &str,
     unsubscribe_method: &str,
     pubsub: impl PubSub<T> + Clone + Send + Sync + 'static,
 ) {
     let subscriptions0 = Arc::new(Mutex::new(HashMap::new()));
     let subscriptions = subscriptions0.clone();
+    let notify_method: Arc<str> = serde_json::to_string(notify_method).unwrap().into();
     io.add_method_with_meta(
         subscribe_method,
         move |params: Params, session: Option<Session>| {
@@ -221,11 +220,11 @@ pub fn add_pub_sub<T: Send + 'static>(
 fn format_msg<T>(id: &str, method: &str, msg: PublishMsg<T>) -> String {
     match msg.is_err {
         false => format!(
-            r#"{{"jsonrpc":"2.0","method":"{}","params":{{"subscription":"{}","result":{}}}}}"#,
+            r#"{{"jsonrpc":"2.0","method":{},"params":{{"subscription":"{}","result":{}}}}}"#,
             method, id, msg.value,
         ),
         true => format!(
-            r#"{{"jsonrpc":"2.0","method":"{}","params":{{"subscription":"{}","error":{}}}}}"#,
+            r#"{{"jsonrpc":"2.0","method":{},"params":{{"subscription":"{}","error":{}}}}}"#,
             method, id, msg.value,
         ),
     }
@@ -289,7 +288,7 @@ mod tests {
     #[tokio::test]
     async fn test_pubsub() {
         let mut rpc = MetaIoHandler::with_compatibility(jsonrpc_core::Compatibility::V2);
-        add_pub_sub(&mut rpc, "sub", "notify".into(), "unsub", |_params| {
+        add_pub_sub(&mut rpc, "sub", "notify", "unsub", |_params| {
             Ok(stream! {
                 yield PublishMsg::result(&1);
                 yield PublishMsg::result(&1);
@@ -368,5 +367,18 @@ mod tests {
             PublishMsg::result_raw_json(""),
         ]));
         assert_eq!(s.count().await, 2);
+    }
+
+    #[test]
+    fn test_format_message() {
+        let msg = format_msg(
+            "id",
+            &serde_json::to_string("notification").unwrap(),
+            PublishMsg::result(&3u64),
+        );
+        let msg: serde_json::Value = serde_json::from_str(&msg).unwrap();
+        assert_eq!(msg["method"].as_str(), Some("notification"));
+        assert_eq!(msg["params"]["subscription"].as_str(), Some("id"));
+        assert_eq!(msg["params"]["result"].as_u64(), Some(3));
     }
 }
