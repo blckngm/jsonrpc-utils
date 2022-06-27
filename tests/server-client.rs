@@ -6,9 +6,8 @@ use anyhow::Context;
 use async_trait::async_trait;
 use jsonrpc_core::{MetaIoHandler, Result};
 use jsonrpc_utils::{
-    axum::jsonrpc_router, pub_sub::Session, stream::StreamServerConfig, HttpClient,
+    axum::jsonrpc_router, rpc, rpc_client, stream::StreamServerConfig, HttpClient,
 };
-use jsonrpc_utils_macros::{rpc, rpc_client};
 
 #[rpc]
 #[async_trait]

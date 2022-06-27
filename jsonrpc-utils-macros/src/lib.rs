@@ -30,7 +30,7 @@ pub fn rpc(_attr: TokenStream, input: TokenStream) -> TokenStream {
     let result = quote! {
         #item_trait
 
-        #vis fn #add_method_name(rpc: &mut MetaIoHandler<Option<Session>>, rpc_impl: impl #trait_name + Clone + Send + Sync + 'static) {
+        #vis fn #add_method_name(rpc: &mut jsonrpc_core::MetaIoHandler<Option<jsonrpc_utils::pub_sub::Session>>, rpc_impl: impl #trait_name + Clone + Send + Sync + 'static) {
             #(#add_methods)*
         }
     };
