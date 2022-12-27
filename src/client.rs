@@ -14,6 +14,10 @@ impl HttpClient {
         }
     }
 
+    pub fn url(&self) -> &str {
+        &self.url
+    }
+
     pub fn with_client(url: String, client: reqwest::Client) -> Self {
         Self { client, url }
     }
@@ -64,6 +68,10 @@ impl BlockingHttpClient {
             client: reqwest::blocking::Client::new(),
             url,
         }
+    }
+
+    pub fn url(&self) -> &str {
+        &self.url
     }
 
     pub fn with_client(url: String, client: reqwest::blocking::Client) -> Self {
