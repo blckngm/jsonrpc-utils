@@ -1,4 +1,5 @@
 #[cfg(feature = "client")]
+#[derive(Clone)]
 pub struct HttpClient {
     client: reqwest::Client,
     url: String,
@@ -50,6 +51,7 @@ impl HttpClient {
 }
 
 #[cfg(feature = "blocking-client")]
+#[derive(Clone)]
 pub struct BlockingHttpClient {
     client: reqwest::blocking::Client,
     url: String,
