@@ -22,7 +22,7 @@ cargo-args = ["-Zunstable-options", "-Zrustdoc-scrape-examples=examples"]
 
 [dependencies]
 jsonrpc-utils-macros = { path = "./jsonrpc-utils-macros", version = "=0.2.0-preview.1", optional = true }
-axum = { version = "0.5.6", features = ["ws"] }
+axum = { version = "0.6", features = ["ws"] }
 futures-core = "0.3.21"
 futures-util = "0.3.21"
 hex = "0.4.3"

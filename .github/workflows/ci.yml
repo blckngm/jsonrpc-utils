@@ -8,21 +8,29 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
-    - uses: actions-rs/toolchain@v1
-      with:
-        toolchain: 1.58.1
-        default: true
-        profile: minimal
-        components: rustfmt, clippy
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: 1.66.0
+          default: true
+          profile: minimal
+          components: rustfmt, clippy
 
-    - uses: actions-rs/toolchain@v1
-      with:
-        toolchain: nightly
-        profile: minimal
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: 1.58.1
+          profile: minimal
 
-    - name: cargo fmt
-      run: cargo fmt -- --check
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          profile: minimal
 
-    - name: clippy and tests
-      run: ./test.sh
+      - name: cargo fmt
+        run: cargo fmt -- --check
+
+      - name: clippy and tests
+        run: ./test.sh
+
+      - name: MSRV check
+        run: cargo +1.58.1 check --all --all-targets --all-features

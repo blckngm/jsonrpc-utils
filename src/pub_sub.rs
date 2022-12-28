@@ -27,7 +27,7 @@ fn generate_id() -> String {
     let id: [u8; 16] = thread_rng().gen();
     let mut id_hex_bytes = vec![0u8; 34];
     id_hex_bytes[..2].copy_from_slice(b"0x");
-    hex::encode_to_slice(&id, &mut id_hex_bytes[2..]).unwrap();
+    hex::encode_to_slice(id, &mut id_hex_bytes[2..]).unwrap();
     unsafe { String::from_utf8_unchecked(id_hex_bytes) }
 }
 
@@ -126,7 +126,7 @@ impl<T, P: PubSub<T>> PubSub<T> for Arc<P> {
     type Stream = P::Stream;
 
     fn subscribe(&self, params: Params) -> Result<Self::Stream, jsonrpc_core::Error> {
-        P::subscribe(&*self, params)
+        <P as PubSub<T>>::subscribe(self, params)
     }
 }
 
