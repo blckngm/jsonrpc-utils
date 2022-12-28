@@ -13,6 +13,7 @@ use jsonrpc_utils::{
 #[async_trait]
 trait MyRpc {
     async fn sleep(&self, x: u64) -> Result<u64>;
+    async fn value(&self, x: Option<u64>) -> Result<u64>;
     async fn add(&self, (x, y): (i32, i32), z: i32) -> Result<i32>;
     fn ping(&self) -> Result<String>;
 
@@ -29,6 +30,10 @@ impl MyRpc for RpcImpl {
     async fn sleep(&self, x: u64) -> Result<u64> {
         tokio::time::sleep(Duration::from_secs(x)).await;
         Ok(x)
+    }
+
+    async fn value(&self, x: Option<u64>) -> Result<u64> {
+        Ok(x.unwrap_or_default())
     }
 
     async fn add(&self, (x, y): (i32, i32), z: i32) -> Result<i32> {

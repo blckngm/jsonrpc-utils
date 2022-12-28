@@ -14,13 +14,14 @@ pub use jsonrpc_utils_macros::pub_sub;
 ///
 /// ```no_run
 /// # use jsonrpc_core::{Result, MetaIoHandler};
-/// # use jsonrpc_utils::{rpc, pub_sub, pub_sub::{PublishMsg, Session}};
+/// # use jsonrpc_utils::{rpc, pub_sub, pub_sub::{PublishMsg, Session}, optional};
 /// # use async_trait::async_trait;
 /// # use futures_core::Stream;
 /// #[rpc]
 /// #[async_trait]
 /// trait MyRpc {
-///     async fn sleep(&self, x: u64) -> Result<u64>;
+///     // Tailing `Option` parameters are optional.
+///     async fn sleep(&self, x: Option<u64>) -> Result<u64>;
 ///     async fn add(&self, (x, y): (i32, i32), z: i32) -> Result<i32>;
 ///     // Non-async function is supported, but implementation should not block the executor.
 ///     fn ping(&self) -> Result<String>;
@@ -35,7 +36,7 @@ pub use jsonrpc_utils_macros::pub_sub;
 ///
 /// #[async_trait]
 /// impl MyRpc for RpcImpl {
-///     async fn sleep(&self, x: u64) -> Result<u64> { todo!() }
+///     async fn sleep(&self, x: Option<u64>) -> Result<u64> { todo!() }
 ///     async fn add(&self, (x, y): (i32, i32), z: i32) -> Result<i32> { todo!() }
 ///     fn ping(&self) -> Result<String> { Ok("pong".into()) }
 ///

@@ -3,7 +3,8 @@ use proc_macro2::{Literal, Span};
 use quote::{format_ident, quote};
 use syn::{
     braced, parse::Parse, parse2, parse_macro_input, parse_quote, Attribute, FnArg, Ident,
-    ImplItemMethod, ItemTrait, LitStr, Pat, Result, Token, TraitItem, TraitItemMethod, Visibility,
+    ImplItemMethod, ItemTrait, LitStr, Pat, Result, Token, TraitItem, TraitItemMethod, Type,
+    Visibility,
 };
 
 #[proc_macro_attribute]
@@ -182,12 +183,57 @@ fn add_method(m: &mut TraitItemMethod) -> Result<proc_macro2::TokenStream> {
             },
         }
     }
-    let params_names = quote!(#(#params_names ,)*);
-    let params_tys = quote!(#(#params_tys ,)*);
-    let result = if m.sig.asyncness.is_some() {
-        quote!(rpc_impl.#method_name(#params_names).await)
+    // Number of tailing optional parameters.
+    let optional_params = params_tys
+        .iter()
+        .rev()
+        .take_while(|t| match t {
+            Type::Path(t) => t
+                .path
+                .segments
+                .first()
+                .map_or(false, |s| s.ident == "Option"),
+            _ => false,
+        })
+        .count();
+    let params_names1 = quote!(#(#params_names ,)*);
+    let params_tys1 = quote!(#(#params_tys ,)*);
+    let parse_params = if optional_params > 0 {
+        let required_params = params_names.len() - optional_params;
+        let mut parse_params = quote! {
+            let mut arr = match params {
+                jsonrpc_core::types::params::Params::Array(arr) => arr.into_iter(),
+                jsonrpc_core::types::params::Params::None => Vec::new().into_iter(),
+                _ => return Err(jsonrpc_core::Error::invalid_params("")),
+            };
+        };
+        for i in 0..required_params {
+            let p = &params_names[i];
+            let ty = params_tys[i];
+            parse_params.extend(quote! {
+                let #p: #ty = serde_json::from_value(arr.next().ok_or_else(|| jsonrpc_core::types::Error::invalid_params(""))?).map_err(|_|
+                    jsonrpc_core::types::error::Error::invalid_params("")
+                )?;
+            });
+        }
+        for i in required_params..params_names.len() {
+            let p = &params_names[i];
+            let ty = params_tys[i];
+            parse_params.extend(quote! {
+                let #p: #ty = match arr.next() {
+                    Some(v) => serde_json::from_value(v).map_err(|_| jsonrpc_core::types::error::Error::invalid_params(""))?,
+                    None => None,
+                };
+            });
+        }
+        parse_params
     } else {
-        quote!(rpc_impl.#method_name(#params_names))
+        quote!(let (#params_names1): (#params_tys1) = params.parse()?;)
+    };
+    let result = if m.sig.asyncness.is_some() {
+        quote!(rpc_impl.#method_name(#params_names1).await)
+    } else {
+        quote!(rpc_impl.#method_name(#params_names1))
     };
 
     Ok(if let Some(pub_sub) = pub_sub_attribute {
@@ -197,8 +243,8 @@ fn add_method(m: &mut TraitItemMethod) -> Result<proc_macro2::TokenStream> {
             jsonrpc_utils::pub_sub::add_pub_sub(rpc, #method_name_str, #notify_method_lit.into(), #unsubscribe_method_lit, {
                 let rpc_impl = rpc_impl.clone();
                 move |params: jsonrpc_core::Params| {
-                    let (#params_names): (#params_tys) = params.parse()?;
-                    rpc_impl.#method_name(#params_names)
+                    #parse_params
+                    rpc_impl.#method_name(#params_names1)
                 }
             });
         }
@@ -209,7 +255,7 @@ fn add_method(m: &mut TraitItemMethod) -> Result<proc_macro2::TokenStream> {
                 move |params: jsonrpc_core::Params| {
                     let rpc_impl = rpc_impl.clone();
                     async move {
-                        let (#params_names): (#params_tys) = params.parse()?;
+                        #parse_params
                         jsonrpc_core::serde_json::to_value(#result?).map_err(|_| jsonrpc_core::Error::internal_error())
                     }
                 }
@@ -294,6 +340,7 @@ mod tests {
 
     fn test_method(m: proc_macro2::TokenStream) -> Stmt {
         let output = add_method(&mut parse2(m).unwrap()).unwrap();
+        println!("output: {}", output);
         parse2(output).unwrap()
     }
 
@@ -304,6 +351,9 @@ mod tests {
         ));
         test_method(quote!(
             fn sleep(&self, a: i32, b: i32) -> Result<i32>;
+        ));
+        test_method(quote!(
+            fn sleep2(&self, a: Option<i32>, b: Option<i32>) -> Result<i32>;
         ));
         test_method(quote!(
             #[pub_sub(notify = "subscription", unsubscribe = "unsubscribe")]

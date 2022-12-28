@@ -16,6 +16,7 @@ struct MyRpcClient {
 #[rpc_client]
 impl MyRpcClient {
     async fn sleep(&self, secs: u64) -> Result<u64>;
+    async fn value(&self) -> Result<u64>;
     async fn add(&self, (x, y): (i32, i32), z: i32) -> Result<i32>;
     async fn ping(&self) -> Result<String>;
 }
@@ -26,6 +27,7 @@ pub async fn main() {
         inner: HttpClient::new("http://127.0.0.1:3000/rpc".into()),
     };
     dbg!(client.sleep(1).await.unwrap());
+    dbg!(client.value().await.unwrap());
     dbg!(client.add((3, 4), 5).await.unwrap());
     dbg!(client.ping().await.unwrap());
 }
