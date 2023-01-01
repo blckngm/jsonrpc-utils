@@ -17,7 +17,7 @@ pub use jsonrpc_utils_macros::pub_sub;
 ///
 /// ```no_run
 /// # use jsonrpc_core::{Result, MetaIoHandler};
-/// # use jsonrpc_utils::{rpc, pub_sub, pub_sub::{PublishMsg, Session}, optional};
+/// # use jsonrpc_utils::{rpc, pub_sub, pub_sub::{PublishMsg, Session}};
 /// # use async_trait::async_trait;
 /// # use futures_core::Stream;
 /// #[rpc]
