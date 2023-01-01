@@ -242,7 +242,7 @@ fn add_method(m: &mut TraitItemMethod) -> Result<proc_macro2::TokenStream> {
                 let rpc_impl = rpc_impl.clone();
                 move |params: jsonrpc_utils::jsonrpc_core::Params| {
                     #parse_params
-                    rpc_impl.#method_name(#params_names1)
+                    rpc_impl.#method_name(#params_names1).map_err(Into::into)
                 }
             });
         }
