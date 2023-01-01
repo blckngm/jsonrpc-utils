@@ -5,7 +5,7 @@ use std::{sync::Arc, time::Duration};
 use futures_util::{SinkExt, TryStreamExt};
 use jsonrpc_core::{MetaIoHandler, Params};
 use jsonrpc_utils::{
-    axum::jsonrpc_router,
+    axum_utils::jsonrpc_router,
     pub_sub::{add_pub_sub, PublishMsg},
     stream::{serve_stream_sink, StreamMsg, StreamServerConfig},
 };

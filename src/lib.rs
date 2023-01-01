@@ -1,7 +1,10 @@
 //! Alternative pub/sub, server and client implementations for jsonrpc-core.
 #![cfg_attr(doc, feature(doc_auto_cfg))]
 
-pub mod axum;
+pub extern crate jsonrpc_core;
+pub extern crate serde_json;
+
+pub mod axum_utils;
 pub mod pub_sub;
 pub mod stream;
 

@@ -6,7 +6,7 @@
 //! $ cargo run --features=client --example client
 //! ```
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use jsonrpc_utils::{rpc_client, BlockingHttpClient};
 
 struct MyRpcClient {

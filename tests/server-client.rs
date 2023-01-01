@@ -2,11 +2,10 @@
 
 use std::{sync::Arc, time::Duration};
 
-use anyhow::Context;
 use async_trait::async_trait;
 use jsonrpc_core::{MetaIoHandler, Result};
 use jsonrpc_utils::{
-    axum::jsonrpc_router, rpc, rpc_client, stream::StreamServerConfig, HttpClient,
+    axum_utils::jsonrpc_router, rpc, rpc_client, stream::StreamServerConfig, HttpClient,
 };
 
 #[rpc]

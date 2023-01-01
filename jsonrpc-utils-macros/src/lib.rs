@@ -31,7 +31,7 @@ pub fn rpc(_attr: TokenStream, input: TokenStream) -> TokenStream {
     let result = quote! {
         #item_trait
 
-        #vis fn #add_method_name(rpc: &mut jsonrpc_core::MetaIoHandler<Option<jsonrpc_utils::pub_sub::Session>>, rpc_impl: impl #trait_name + Clone + Send + Sync + 'static) {
+        #vis fn #add_method_name(rpc: &mut jsonrpc_utils::jsonrpc_core::MetaIoHandler<Option<jsonrpc_utils::pub_sub::Session>>, rpc_impl: impl #trait_name + Clone + Send + Sync + 'static) {
             #(#add_methods)*
         }
     };
@@ -138,18 +138,16 @@ fn rewrite_method(m: &mut ImplItemMethod) -> Result<()> {
         m.block = parse_quote!({
             let result = self
                 .inner
-                .rpc(#method_name, &serde_json::value::to_raw_value(&(#params_names))?)
-                .await
-                .context(#method_name)?;
-            serde_json::from_value(result).context(#method_name)
+                .rpc(#method_name, &jsonrpc_utils::serde_json::value::to_raw_value(&(#params_names))?)
+                .await?;
+            Ok(jsonrpc_utils::serde_json::from_value(result)?)
         });
     } else {
         m.block = parse_quote!({
             let result = self
                 .inner
-                .rpc(#method_name, &serde_json::value::to_raw_value(&(#params_names))?)
-                .context(#method_name)?;
-            serde_json::from_value(result).context(#method_name)
+                .rpc(#method_name, &jsonrpc_utils::serde_json::value::to_raw_value(&(#params_names))?)?;
+            Ok(jsonrpc_utils::serde_json::from_value(result)?)
         });
     }
     Ok(())
@@ -202,17 +200,17 @@ fn add_method(m: &mut TraitItemMethod) -> Result<proc_macro2::TokenStream> {
         let required_params = params_names.len() - optional_params;
         let mut parse_params = quote! {
             let mut arr = match params {
-                jsonrpc_core::types::params::Params::Array(arr) => arr.into_iter(),
-                jsonrpc_core::types::params::Params::None => Vec::new().into_iter(),
-                _ => return Err(jsonrpc_core::Error::invalid_params("")),
+                jsonrpc_utils::jsonrpc_core::Params::Array(arr) => arr.into_iter(),
+                jsonrpc_utils::jsonrpc_core::Params::None => Vec::new().into_iter(),
+                _ => return Err(jsonrpc_utils::jsonrpc_core::Error::invalid_params("")),
             };
         };
         for i in 0..required_params {
             let p = &params_names[i];
             let ty = params_tys[i];
             parse_params.extend(quote! {
-                let #p: #ty = serde_json::from_value(arr.next().ok_or_else(|| jsonrpc_core::types::Error::invalid_params(""))?).map_err(|_|
-                    jsonrpc_core::types::error::Error::invalid_params("")
+                let #p: #ty = jsonrpc_utils::serde_json::from_value(arr.next().ok_or_else(|| jsonrpc_utils::jsonrpc_core::Error::invalid_params(""))?).map_err(|_|
+                    jsonrpc_utils::jsonrpc_core::Error::invalid_params("")
                 )?;
             });
         }
@@ -221,7 +219,7 @@ fn add_method(m: &mut TraitItemMethod) -> Result<proc_macro2::TokenStream> {
             let ty = params_tys[i];
             parse_params.extend(quote! {
                 let #p: #ty = match arr.next() {
-                    Some(v) => serde_json::from_value(v).map_err(|_| jsonrpc_core::types::error::Error::invalid_params(""))?,
+                    Some(v) => jsonrpc_utils::serde_json::from_value(v).map_err(|_| jsonrpc_utils::jsonrpc_core::Error::invalid_params(""))?,
                     None => None,
                 };
             });
@@ -242,7 +240,7 @@ fn add_method(m: &mut TraitItemMethod) -> Result<proc_macro2::TokenStream> {
         quote! {
             jsonrpc_utils::pub_sub::add_pub_sub(rpc, #method_name_str, #notify_method_lit.into(), #unsubscribe_method_lit, {
                 let rpc_impl = rpc_impl.clone();
-                move |params: jsonrpc_core::Params| {
+                move |params: jsonrpc_utils::jsonrpc_core::Params| {
                     #parse_params
                     rpc_impl.#method_name(#params_names1)
                 }
@@ -252,11 +250,11 @@ fn add_method(m: &mut TraitItemMethod) -> Result<proc_macro2::TokenStream> {
         quote! {
             rpc.add_method(#method_name_str, {
                 let rpc_impl = rpc_impl.clone();
-                move |params: jsonrpc_core::Params| {
+                move |params: jsonrpc_utils::jsonrpc_core::Params| {
                     let rpc_impl = rpc_impl.clone();
                     async move {
                         #parse_params
-                        jsonrpc_core::serde_json::to_value(#result?).map_err(|_| jsonrpc_core::Error::internal_error())
+                        jsonrpc_utils::serde_json::to_value(#result?).map_err(|_| jsonrpc_utils::jsonrpc_core::Error::internal_error())
                     }
                 }
             });
