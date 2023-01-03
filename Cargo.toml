@@ -1,6 +1,6 @@
 [package]
 name = "jsonrpc-utils"
-version = "0.2.0-preview.2"
+version = "0.2.0-preview.3"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/sopium/jsonrpc-utils"
@@ -20,7 +20,7 @@ blocking-client = ["reqwest/blocking", "anyhow"]
 all-features = true
 
 [dependencies]
-jsonrpc-utils-macros = { path = "./jsonrpc-utils-macros", version = "=0.2.0-preview.1", optional = true }
+jsonrpc-utils-macros = { path = "./jsonrpc-utils-macros", version = "=0.2.0-preview.3", optional = true }
 axum = { version = "0.6", features = ["ws"] }
 futures-core = "0.3.21"
 futures-util = "0.3.21"
