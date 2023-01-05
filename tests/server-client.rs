@@ -7,6 +7,7 @@ use jsonrpc_core::{MetaIoHandler, Result};
 use jsonrpc_utils::{
     axum_utils::jsonrpc_router, rpc, rpc_client, stream::StreamServerConfig, HttpClient,
 };
+use serde_json::value::RawValue;
 
 #[rpc]
 #[async_trait]
@@ -65,4 +66,14 @@ async fn test_server_client() {
     client.sleep(1).await.unwrap();
     assert_eq!(client.add((3, 4), 5).await.unwrap(), 12);
     assert_eq!(client.ping().await.unwrap(), "pong");
+
+    // Test [] params.
+    assert_eq!(
+        client
+            .inner
+            .rpc("ping", &RawValue::from_string("[]".into()).unwrap())
+            .await
+            .unwrap(),
+        "pong"
+    );
 }

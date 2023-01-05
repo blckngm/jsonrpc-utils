@@ -181,6 +181,7 @@ fn add_method(m: &mut TraitItemMethod) -> Result<proc_macro2::TokenStream> {
             },
         }
     }
+    let no_params = params_names.is_empty();
     // Number of tailing optional parameters.
     let optional_params = params_tys
         .iter()
@@ -225,6 +226,8 @@ fn add_method(m: &mut TraitItemMethod) -> Result<proc_macro2::TokenStream> {
             });
         }
         parse_params
+    } else if no_params {
+        quote!(params.expect_no_params()?;)
     } else {
         quote!(let (#params_names1): (#params_tys1) = params.parse()?;)
     };
@@ -344,6 +347,9 @@ mod tests {
 
     #[test]
     fn test_methods() {
+        test_method(quote!(
+            async fn no_param(&self) -> Result<u64>;
+        ));
         test_method(quote!(
             async fn sleep(&self, x: u64) -> Result<u64>;
         ));
