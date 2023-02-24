@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use futures_core::{stream::BoxStream, Stream};
 use jsonrpc_core::{MetaIoHandler, Result};
 use jsonrpc_utils::{
-    axum_utils::jsonrpc_router, pub_sub, pub_sub::PublishMsg, rpc, stream::StreamServerConfig,
+    axum_utils::jsonrpc_router, pub_sub::PublishMsg, rpc, stream::StreamServerConfig,
 };
 
 #[rpc]
@@ -18,7 +18,7 @@ trait MyRpc {
     fn ping(&self) -> Result<String>;
 
     type S: Stream<Item = PublishMsg<u64>> + Send + 'static;
-    #[pub_sub(notify = "subscription", unsubscribe = "unsubscribe")]
+    #[rpc(pub_sub(notify = "subscription", unsubscribe = "unsubscribe"))]
     fn subscribe(&self, interval: u64) -> Result<Self::S>;
 }
 

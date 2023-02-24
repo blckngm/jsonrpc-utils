@@ -1,3 +1,4 @@
+use darling::{FromAttributes, FromMeta};
 use proc_macro::TokenStream;
 use proc_macro2::{Literal, Span};
 use quote::{format_ident, quote};
@@ -44,12 +45,6 @@ pub fn rpc_client(_attr: TokenStream, input: TokenStream) -> TokenStream {
     rpc_client_impl(input.into())
         .unwrap_or_else(|e| e.into_compile_error())
         .into()
-}
-
-/// Provide additional information about a pub/sub method.
-#[proc_macro_attribute]
-pub fn pub_sub(_attr: TokenStream, input: TokenStream) -> TokenStream {
-    input
 }
 
 struct ImplMethods {
@@ -156,7 +151,12 @@ fn rewrite_method(m: &mut ImplItemMethod) -> Result<()> {
 fn add_method(m: &mut TraitItemMethod) -> Result<proc_macro2::TokenStream> {
     let method_name = &m.sig.ident;
 
-    let pub_sub_attribute = get_pub_sub_attribute(&mut m.attrs)?;
+    let (rpc_attributes, other_attributes) = m
+        .attrs
+        .drain(..)
+        .partition::<Vec<_>, _>(|a| a.path.is_ident("rpc"));
+    let attributes = MethodAttributes::from_attributes(&rpc_attributes)?;
+    m.attrs = other_attributes;
 
     let method_name_str = Literal::string(&method_name.to_string());
     let mut params_names = Vec::new();
@@ -237,9 +237,9 @@ fn add_method(m: &mut TraitItemMethod) -> Result<proc_macro2::TokenStream> {
         quote!(rpc_impl.#method_name(#params_names1))
     };
 
-    Ok(if let Some(pub_sub) = pub_sub_attribute {
-        let notify_method_lit = LitStr::new(&pub_sub.notify_method, Span::call_site());
-        let unsubscribe_method_lit = LitStr::new(&pub_sub.unsubscribe_method, Span::call_site());
+    Ok(if let Some(pub_sub) = attributes.pub_sub {
+        let notify_method_lit = LitStr::new(&pub_sub.notify, Span::call_site());
+        let unsubscribe_method_lit = LitStr::new(&pub_sub.unsubscribe, Span::call_site());
         quote! {
             jsonrpc_utils::pub_sub::add_pub_sub(rpc, #method_name_str, #notify_method_lit.into(), #unsubscribe_method_lit, {
                 let rpc_impl = rpc_impl.clone();
@@ -265,57 +265,16 @@ fn add_method(m: &mut TraitItemMethod) -> Result<proc_macro2::TokenStream> {
     })
 }
 
+#[derive(FromAttributes)]
+#[darling(attributes(rpc))]
+struct MethodAttributes {
+    pub_sub: Option<PubSubAttribute>,
+}
+
+#[derive(FromMeta)]
 struct PubSubAttribute {
-    notify_method: String,
-    unsubscribe_method: String,
-}
-
-impl Parse for PubSubAttribute {
-    fn parse(input: syn::parse::ParseStream) -> Result<Self> {
-        let mut result = PubSubAttribute {
-            notify_method: String::new(),
-            unsubscribe_method: String::new(),
-        };
-        while !input.is_empty() {
-            let ident: Ident = input.parse()?;
-            input.parse::<Token![=]>()?;
-            if ident == "notify" {
-                let value: LitStr = input.parse()?;
-                result.notify_method = value.value();
-            } else if ident == "unsubscribe" {
-                let value: LitStr = input.parse()?;
-                result.unsubscribe_method = value.value();
-            } else {
-                return Err(syn::Error::new(
-                    ident.span(),
-                    "expected `notify` or `unsubscribe`",
-                ));
-            }
-            if !input.is_empty() {
-                input.parse::<Token![,]>()?;
-            }
-        }
-        if result.notify_method.is_empty() {
-            return Err(input.error(r#"expected `notify = "notify_method_name"`"#));
-        }
-        if result.unsubscribe_method.is_empty() {
-            return Err(input.error(r#"expected `unsubscribe = "unsubscribe_method_name"`"#));
-        }
-        Ok(result)
-    }
-}
-
-fn get_pub_sub_attribute(attrs: &mut Vec<Attribute>) -> Result<Option<PubSubAttribute>> {
-    let mut r = None;
-    for a in attrs {
-        if a.path.is_ident("pub_sub") {
-            if r.is_some() {
-                return Err(syn::Error::new_spanned(a, "duplicated pub_sub attribute"));
-            }
-            r = Some(a.parse_args()?)
-        }
-    }
-    Ok(r)
+    notify: String,
+    unsubscribe: String,
 }
 
 fn to_snake_case(ident: String) -> String {
@@ -360,7 +319,7 @@ mod tests {
             fn sleep2(&self, a: Option<i32>, b: Option<i32>) -> Result<i32>;
         ));
         test_method(quote!(
-            #[pub_sub(notify = "subscription", unsubscribe = "unsubscribe")]
+            #[rpc(pub_sub(notify = "subscription", unsubscribe = "unsubscribe"))]
             fn subscribe(&self, a: i32, b: i32) -> Result<S>;
         ));
     }
