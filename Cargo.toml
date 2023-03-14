@@ -39,3 +39,5 @@ tokio = { version = "1.19.0", features = ["rt-multi-thread"] }
 tokio-stream = { version = "0.1.9", features = ["sync"] }
 tokio-util = { version = "0.7.3", features = ["codec"] }
 async-trait = "0.1.56"
+schemars = "0.8.12"
+serde = { version = "1.0.156", features = ["derive"] }
