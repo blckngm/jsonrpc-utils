@@ -41,3 +41,4 @@ tokio-util = { version = "0.7.3", features = ["codec"] }
 async-trait = "0.1.56"
 schemars = "0.8.12"
 serde = { version = "1.0.156", features = ["derive"] }
+tower-http = { version = "0.4.0", features = ["cors"] }
