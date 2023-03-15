@@ -8,3 +8,4 @@ And alternative proc-macros for implementing JSONRPC server or client.
 - [Broadcast](examples/broadcast.rs)
 - [Server with Macro](examples/server-macros.rs)
 - [Client with Macro](examples/client.rs)
+- [OpenRPC](examples/openrpc.rs)
