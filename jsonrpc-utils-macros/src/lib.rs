@@ -4,8 +4,8 @@ use proc_macro2::{Literal, Span};
 use quote::{format_ident, quote};
 use syn::{
     braced, parse::Parse, parse2, parse_macro_input, parse_quote, Attribute, AttributeArgs, FnArg,
-    Ident, ImplItemMethod, ItemTrait, LitStr, Pat, PathArguments, Result, ReturnType, Token,
-    TraitItem, TraitItemMethod, Type, Visibility,
+    Ident, ImplItemMethod, ItemTrait, Lit, LitStr, Meta, Pat, PathArguments, Result, ReturnType,
+    Token, TraitItem, TraitItemMethod, Type, Visibility,
 };
 
 #[proc_macro_attribute]
@@ -39,7 +39,7 @@ pub fn rpc(attrs: TokenStream, input: TokenStream) -> TokenStream {
             Ok(x) => x,
             Err(e) => return e.to_compile_error().into(),
         };
-        let title = LitStr::new(&trait_name_snake, trait_name.span());
+        let title = json_str(&trait_name_snake);
         quote!(
             #vis fn #to_schema_method_name() -> jsonrpc_utils::serde_json::Value {
                 jsonrpc_utils::serde_json::json!({
@@ -191,12 +191,38 @@ fn rewrite_method(m: &mut ImplItemMethod) -> Result<()> {
     Ok(())
 }
 
+fn json_str_lit(l: LitStr) -> proc_macro2::TokenStream {
+    quote!( jsonrpc_utils::serde_json::Value::String(#l.into()) )
+}
+
+fn json_str(s: &str) -> proc_macro2::TokenStream {
+    json_str_lit(LitStr::new(s, Span::call_site()))
+}
+
 fn method_to_schema(m: &TraitItemMethod) -> Result<proc_macro2::TokenStream> {
+    let doc = m
+        .attrs
+        .iter()
+        .filter_map(|a| match a.parse_meta() {
+            Ok(Meta::NameValue(nv)) if nv.path.is_ident("doc") => match nv.lit {
+                Lit::Str(lit_str) => Some(lit_str),
+                _ => None,
+            },
+            _ => None,
+        })
+        .next();
+    let description = if let Some(doc) = doc {
+        let doc = json_str(doc.value().trim_start());
+        quote!( "description": #doc, )
+    } else {
+        quote!()
+    };
+
     let attrs = MethodAttributes::from_attributes(&m.attrs)?;
     if attrs.pub_sub.is_some() {
         return Ok(quote!());
     }
-    let name = LitStr::new(&m.sig.ident.to_string(), m.sig.ident.span());
+    let name = json_str(&m.sig.ident.to_string());
     let params: Vec<_> = m
         .sig
         .inputs
@@ -205,8 +231,8 @@ fn method_to_schema(m: &TraitItemMethod) -> Result<proc_macro2::TokenStream> {
             FnArg::Receiver(_) => None,
             FnArg::Typed(pat_type) => {
                 let name = match &*pat_type.pat {
-                    Pat::Ident(i) => LitStr::new(&i.ident.to_string(), i.ident.span()),
-                    _ => LitStr::new("parameter", Span::call_site()),
+                    Pat::Ident(i) => json_str(&i.ident.to_string()),
+                    _ => quote!("parameter"),
                 };
                 let ty = &pat_type.ty;
                 Some(quote! {
@@ -252,6 +278,7 @@ fn method_to_schema(m: &TraitItemMethod) -> Result<proc_macro2::TokenStream> {
     Ok(quote! {
         jsonrpc_utils::serde_json::json!({
             "name": #name,
+            #description
             "params": [#(#params),*],
             "result": #result,
         })
@@ -455,6 +482,7 @@ mod tests {
             async fn sleep(&self, x: u64) -> Result<u64>;
         ));
         test_to_schema(quote!(
+            /// Sleep.
             fn sleep(&self, a: i32, b: i32) -> Result<i32>;
         ));
         test_to_schema(quote!(

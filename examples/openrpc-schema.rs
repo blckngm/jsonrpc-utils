@@ -13,7 +13,9 @@ struct MyStruct {
 #[rpc(openrpc)]
 #[async_trait]
 trait MyRpc {
+    /// Sleep.
     async fn sleep(&self, x: u64) -> Result<u64>;
+    /// Add some numbers.
     async fn add(&self, (x, y): (i32, i32), z: i32) -> Result<i32>;
     fn echo_my_struct(&self, my_struct: MyStruct) -> Result<MyStruct>;
     fn ping(&self) -> Result<String>;
