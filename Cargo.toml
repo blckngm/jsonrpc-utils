@@ -10,6 +10,11 @@ description = "Alternative pub/sub and server implementations for jsonrpc-core"
 
 [workspace]
 
+# This enables example scraping for all examples.
+[[example]]
+name = "openrpc"
+doc-scrape-examples = true
+
 [features]
 default = ["macros"]
 macros = ["jsonrpc-utils-macros", "anyhow"]
@@ -18,6 +23,7 @@ blocking-client = ["reqwest/blocking", "anyhow"]
 
 [package.metadata.docs.rs]
 all-features = true
+cargo-args = ["-Zunstable-options", "-Zrustdoc-scrape-examples"]
 
 [dependencies]
 jsonrpc-utils-macros = { path = "./jsonrpc-utils-macros", version = "=0.2.0-preview.4", optional = true }
