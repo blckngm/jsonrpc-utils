@@ -8,9 +8,15 @@ use serde::{Deserialize, Serialize};
 use tower_http::cors::CorsLayer;
 
 #[derive(Serialize, Deserialize, JsonSchema)]
+struct MyStruct0 {
+    z: String,
+}
+
+#[derive(Serialize, Deserialize, JsonSchema)]
 struct MyStruct {
     x: u32,
     y: Vec<u64>,
+    z: MyStruct0,
 }
 
 #[rpc(openrpc)]
@@ -41,13 +47,13 @@ impl MyRpc for MyRpcImpl {}
 
 #[tokio::main]
 async fn main() {
-    let schema = my_rpc_schema();
+    let doc = my_rpc_doc();
 
     let mut rpc = MetaIoHandler::with_compatibility(jsonrpc_core::Compatibility::V2);
     add_my_rpc_methods(&mut rpc, MyRpcImpl);
     rpc.add_method("rpc.discover", move |_| {
-        let schema = schema.clone();
-        async move { Ok(schema) }
+        let doc = doc.clone();
+        async move { Ok(doc) }
     });
     let rpc = Arc::new(rpc);
 
