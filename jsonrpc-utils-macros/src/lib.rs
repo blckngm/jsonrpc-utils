@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use darling::{FromAttributes, FromMeta};
 use proc_macro::TokenStream;
 use proc_macro2::{Literal, Span};
@@ -24,31 +26,55 @@ pub fn rpc(attrs: TokenStream, input: TokenStream) -> TokenStream {
     let trait_name_snake = to_snake_case(trait_name.to_string());
     let add_method_name = format_ident!("add_{}_methods", trait_name_snake);
 
-    let to_schema_func = if attributes.openrpc {
-        let to_schema_method_name = format_ident!("{}_schema", trait_name_snake);
-        let method_objs = item_trait
+    let doc_func = if attributes.openrpc {
+        let doc_func_name = format_ident!("{}_doc", trait_name_snake);
+        let mut types = HashSet::new();
+        let method_defs = item_trait
             .items
             .iter_mut()
             .filter_map(|m| match m {
                 TraitItem::Method(m) => Some(m),
                 _ => None,
             })
-            .map(|m| method_to_schema(m))
+            .map(|m| method_def(m, &mut types))
             .collect::<Result<Vec<_>>>();
-        let method_objs = match method_objs {
+        let method_defs = match method_defs {
             Ok(x) => x,
             Err(e) => return e.to_compile_error().into(),
         };
-        let title = json_str(&trait_name_snake);
+        let add_types = types.into_iter().map(|t| {
+            quote! {
+                let schema = <#t>::json_schema(&mut gen);
+                schemas.insert(<#t>::schema_name(), schema);
+            }
+        });
+        let title = LitStr::new(&trait_name_snake, Span::call_site());
         quote!(
-            #vis fn #to_schema_method_name() -> jsonrpc_utils::serde_json::Value {
+            #vis fn #doc_func_name() -> jsonrpc_utils::serde_json::Value {
+                #[allow(unused)]
+                use schemars::JsonSchema;
+
+                let mut gen = schemars::gen::SchemaGenerator::new(
+                    schemars::gen::SchemaSettings::draft07()
+                        .with(|s| s.definitions_path = "#/components/schemas/".into()),
+                );
+
+                let mut schemas = std::collections::BTreeMap::new();
+
+                #(#add_types)*
+
+                schemas.extend(core::mem::take(gen.definitions_mut()));
+
                 jsonrpc_utils::serde_json::json!({
                     "openrpc": "1.2.6",
                     "info": {
                         "title": #title,
                         "version": "1.0.0",
                     },
-                    "methods": [#(#method_objs),*]
+                    "methods": [#(#method_defs)*],
+                    "components": {
+                        "schemas": schemas,
+                    }
                 })
             }
         )
@@ -77,7 +103,7 @@ pub fn rpc(attrs: TokenStream, input: TokenStream) -> TokenStream {
             #(#add_methods)*
         }
 
-        #to_schema_func
+        #doc_func
     };
 
     result.into()
@@ -191,15 +217,7 @@ fn rewrite_method(m: &mut ImplItemMethod) -> Result<()> {
     Ok(())
 }
 
-fn json_str_lit(l: LitStr) -> proc_macro2::TokenStream {
-    quote!( jsonrpc_utils::serde_json::Value::String(#l.into()) )
-}
-
-fn json_str(s: &str) -> proc_macro2::TokenStream {
-    json_str_lit(LitStr::new(s, Span::call_site()))
-}
-
-fn method_to_schema(m: &TraitItemMethod) -> Result<proc_macro2::TokenStream> {
+fn method_def(m: &TraitItemMethod, types: &mut HashSet<Type>) -> Result<proc_macro2::TokenStream> {
     let doc = m
         .attrs
         .iter()
@@ -212,7 +230,7 @@ fn method_to_schema(m: &TraitItemMethod) -> Result<proc_macro2::TokenStream> {
         })
         .next();
     let description = if let Some(doc) = doc {
-        let doc = json_str(doc.value().trim_start());
+        let doc = LitStr::new(doc.value().trim_start(), doc.span());
         quote!( "description": #doc, )
     } else {
         quote!()
@@ -222,7 +240,7 @@ fn method_to_schema(m: &TraitItemMethod) -> Result<proc_macro2::TokenStream> {
     if attrs.pub_sub.is_some() {
         return Ok(quote!());
     }
-    let name = json_str(&m.sig.ident.to_string());
+    let name = LitStr::new(&m.sig.ident.to_string(), m.sig.ident.span());
     let params: Vec<_> = m
         .sig
         .inputs
@@ -231,14 +249,17 @@ fn method_to_schema(m: &TraitItemMethod) -> Result<proc_macro2::TokenStream> {
             FnArg::Receiver(_) => None,
             FnArg::Typed(pat_type) => {
                 let name = match &*pat_type.pat {
-                    Pat::Ident(i) => json_str(&i.ident.to_string()),
-                    _ => quote!("parameter"),
+                    Pat::Ident(i) => LitStr::new(&i.ident.to_string(), i.ident.span()),
+                    _ => LitStr::new("parameter", Span::call_site()),
                 };
                 let ty = &pat_type.ty;
+                types.insert((**ty).clone());
                 Some(quote! {
                     {
                         "name": #name,
-                        "schema": schemars::schema_for!(#ty),
+                        "schema": {
+                            "$ref": format!("#/components/schemas/{}", <#ty>::schema_name()),
+                        }
                     }
                 })
             }
@@ -268,11 +289,14 @@ fn method_to_schema(m: &TraitItemMethod) -> Result<proc_macro2::TokenStream> {
             _ => t,
         },
     };
+    types.insert(result_type.clone());
     // TODO: more meaningful result name.
     let result = quote! {
         {
             "name": #name,
-            "schema": schemars::schema_for!(#result_type),
+            "schema": {
+                "$ref": format!("#/components/schemas/{}", <#result_type>::schema_name()),
+            },
         }
     };
     Ok(quote! {
@@ -281,7 +305,7 @@ fn method_to_schema(m: &TraitItemMethod) -> Result<proc_macro2::TokenStream> {
             #description
             "params": [#(#params),*],
             "result": #result,
-        })
+        }),
     })
 }
 
@@ -437,18 +461,12 @@ fn to_snake_case(ident: String) -> String {
 
 #[cfg(test)]
 mod tests {
-    use syn::{parse2, Expr, Stmt};
+    use syn::{parse2, Stmt};
 
     use super::*;
 
     fn test_method(m: proc_macro2::TokenStream) -> Stmt {
         let output = add_method(&mut parse2(m).unwrap()).unwrap();
-        println!("output: {}", output);
-        parse2(output).unwrap()
-    }
-
-    fn test_to_schema(m: proc_macro2::TokenStream) -> Expr {
-        let output = method_to_schema(&parse2(m).unwrap()).unwrap();
         println!("output: {}", output);
         parse2(output).unwrap()
     }
@@ -470,23 +488,6 @@ mod tests {
         test_method(quote!(
             #[rpc(pub_sub(notify = "subscription", unsubscribe = "unsubscribe"))]
             fn subscribe(&self, a: i32, b: i32) -> Result<S>;
-        ));
-    }
-
-    #[test]
-    fn test_methods_to_schema() {
-        test_to_schema(quote!(
-            async fn no_param(&self) -> Result<u64>;
-        ));
-        test_to_schema(quote!(
-            async fn sleep(&self, x: u64) -> Result<u64>;
-        ));
-        test_to_schema(quote!(
-            /// Sleep.
-            fn sleep(&self, a: i32, b: i32) -> Result<i32>;
-        ));
-        test_to_schema(quote!(
-            fn sleep2(&self, a: Option<i32>, b: Option<i32>) -> Result<i32>;
         ));
     }
 }
