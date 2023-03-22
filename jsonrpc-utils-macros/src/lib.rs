@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use darling::{FromAttributes, FromMeta};
 use proc_macro::TokenStream;
 use proc_macro2::{Literal, Span};
@@ -28,7 +26,6 @@ pub fn rpc(attrs: TokenStream, input: TokenStream) -> TokenStream {
 
     let doc_func = if attributes.openrpc {
         let doc_func_name = format_ident!("{}_doc", trait_name_snake);
-        let mut types = HashSet::new();
         let method_defs = item_trait
             .items
             .iter_mut()
@@ -36,34 +33,23 @@ pub fn rpc(attrs: TokenStream, input: TokenStream) -> TokenStream {
                 TraitItem::Method(m) => Some(m),
                 _ => None,
             })
-            .map(|m| method_def(m, &mut types))
+            .map(|m| method_def(m))
             .collect::<Result<Vec<_>>>();
         let method_defs = match method_defs {
             Ok(x) => x,
             Err(e) => return e.to_compile_error().into(),
         };
-        let add_types = types.into_iter().map(|t| {
-            quote! {
-                let schema = <#t>::json_schema(&mut gen);
-                schemas.insert(<#t>::schema_name(), schema);
-            }
-        });
         let title = LitStr::new(&trait_name_snake, Span::call_site());
         quote!(
             #vis fn #doc_func_name() -> jsonrpc_utils::serde_json::Value {
                 #[allow(unused)]
                 use schemars::JsonSchema;
 
-                let mut gen = schemars::gen::SchemaGenerator::new(
-                    schemars::gen::SchemaSettings::draft07()
-                        .with(|s| s.definitions_path = "#/components/schemas/".into()),
-                );
+                let mut gen = schemars::gen::SchemaSettings::draft07().with(|s|
+                    s.definitions_path = "#/components/schemas/".into()
+                ).into_generator();
 
-                let mut schemas = std::collections::BTreeMap::new();
-
-                #(#add_types)*
-
-                schemas.extend(core::mem::take(gen.definitions_mut()));
+                let methods = jsonrpc_utils::serde_json::json!([#(#method_defs)*]);
 
                 jsonrpc_utils::serde_json::json!({
                     "openrpc": "1.2.6",
@@ -71,9 +57,9 @@ pub fn rpc(attrs: TokenStream, input: TokenStream) -> TokenStream {
                         "title": #title,
                         "version": "1.0.0",
                     },
-                    "methods": [#(#method_defs)*],
+                    "methods": methods,
                     "components": {
-                        "schemas": schemas,
+                        "schemas": gen.take_definitions(),
                     }
                 })
             }
@@ -217,7 +203,7 @@ fn rewrite_method(m: &mut ImplItemMethod) -> Result<()> {
     Ok(())
 }
 
-fn method_def(m: &TraitItemMethod, types: &mut HashSet<Type>) -> Result<proc_macro2::TokenStream> {
+fn method_def(m: &TraitItemMethod) -> Result<proc_macro2::TokenStream> {
     let doc = m
         .attrs
         .iter()
@@ -253,13 +239,10 @@ fn method_def(m: &TraitItemMethod, types: &mut HashSet<Type>) -> Result<proc_mac
                     _ => LitStr::new("parameter", Span::call_site()),
                 };
                 let ty = &pat_type.ty;
-                types.insert((**ty).clone());
                 Some(quote! {
                     {
                         "name": #name,
-                        "schema": {
-                            "$ref": format!("#/components/schemas/{}", <#ty>::schema_name()),
-                        }
+                        "schema": gen.subschema_for::<#ty>(),
                     }
                 })
             }
@@ -289,14 +272,11 @@ fn method_def(m: &TraitItemMethod, types: &mut HashSet<Type>) -> Result<proc_mac
             _ => t,
         },
     };
-    types.insert(result_type.clone());
     // TODO: more meaningful result name.
     let result = quote! {
         {
             "name": #name,
-            "schema": {
-                "$ref": format!("#/components/schemas/{}", <#result_type>::schema_name()),
-            },
+            "schema": gen.subschema_for::<#result_type>(),
         }
     };
     Ok(quote! {
