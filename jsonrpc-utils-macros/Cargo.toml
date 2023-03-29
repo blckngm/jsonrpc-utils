@@ -12,8 +12,6 @@ description = "Proc-macros for jsonrpc-utils"
 proc-macro = true
 
 [dependencies]
-darling = "0.14.3"
-open-rpc-schema = "0.0.4"
 proc-macro2 = "1.0.39"
 quote = "1.0.18"
-syn = { version = "1.0.96", features = ["full"] }
+syn = { version = "2", features = ["full"] }

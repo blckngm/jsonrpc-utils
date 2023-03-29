@@ -1,22 +1,17 @@
-use darling::{FromAttributes, FromMeta};
 use proc_macro::TokenStream;
 use proc_macro2::{Literal, Span};
-use quote::{format_ident, quote};
+use quote::{format_ident, quote, ToTokens};
 use syn::{
-    braced, parse::Parse, parse2, parse_macro_input, parse_quote, Attribute, AttributeArgs, FnArg,
-    Ident, ImplItemMethod, ItemTrait, Lit, LitStr, Meta, Pat, PathArguments, Result, ReturnType,
-    Token, TraitItem, TraitItemMethod, Type, Visibility,
+    braced, meta, parenthesized,
+    parse::{Parse, ParseStream, Parser},
+    parse2, parse_macro_input, parse_quote, Attribute, FnArg, GenericArgument, Ident, ImplItemFn,
+    ItemTrait, LitStr, Pat, PathArguments, Result, ReturnType, Token, TraitItem, TraitItemFn, Type,
+    Visibility,
 };
 
 #[proc_macro_attribute]
-pub fn rpc(attrs: TokenStream, input: TokenStream) -> TokenStream {
-    let attrs = parse_macro_input!(attrs as AttributeArgs);
-    let attributes = match RpcAttributes::from_list(&attrs) {
-        Ok(v) => v,
-        Err(e) => {
-            return TokenStream::from(e.write_errors());
-        }
-    };
+pub fn rpc(args: TokenStream, input: TokenStream) -> TokenStream {
+    let args = parse_macro_input!(args as RpcArgs);
 
     let mut item_trait = parse_macro_input!(input as ItemTrait);
     let vis = &item_trait.vis;
@@ -24,13 +19,13 @@ pub fn rpc(attrs: TokenStream, input: TokenStream) -> TokenStream {
     let trait_name_snake = to_snake_case(trait_name.to_string());
     let add_method_name = format_ident!("add_{}_methods", trait_name_snake);
 
-    let doc_func = if attributes.openrpc {
+    let doc_func = if args.openrpc {
         let doc_func_name = format_ident!("{}_doc", trait_name_snake);
         let method_defs = item_trait
             .items
             .iter_mut()
             .filter_map(|m| match m {
-                TraitItem::Method(m) => Some(m),
+                TraitItem::Fn(m) => Some(m),
                 _ => None,
             })
             .map(|m| method_def(m))
@@ -39,7 +34,7 @@ pub fn rpc(attrs: TokenStream, input: TokenStream) -> TokenStream {
             Ok(x) => x,
             Err(e) => return e.to_compile_error().into(),
         };
-        let title = LitStr::new(&trait_name_snake, Span::call_site());
+        let title = &*trait_name_snake;
         quote!(
             #vis fn #doc_func_name() -> jsonrpc_utils::serde_json::Value {
                 #[allow(unused)]
@@ -72,7 +67,7 @@ pub fn rpc(attrs: TokenStream, input: TokenStream) -> TokenStream {
         .items
         .iter_mut()
         .filter_map(|m| match m {
-            TraitItem::Method(m) => Some(m),
+            TraitItem::Fn(m) => Some(m),
             _ => None,
         })
         .map(add_method)
@@ -105,22 +100,22 @@ pub fn rpc_client(_attr: TokenStream, input: TokenStream) -> TokenStream {
 struct ImplMethods {
     attributes: Vec<Attribute>,
     ident: Ident,
-    items: Vec<ImplItemMethod>,
+    items: Vec<ImplItemFn>,
 }
 
 impl Parse for ImplMethods {
-    fn parse(input: syn::parse::ParseStream) -> Result<Self> {
+    fn parse(input: ParseStream) -> Result<Self> {
         let attributes = input.call(Attribute::parse_outer)?;
         input.parse::<Token![impl]>()?;
         let ident: Ident = input.parse()?;
-        let mut items: Vec<ImplItemMethod> = Vec::new();
+        let mut items: Vec<ImplItemFn> = Vec::new();
         let content;
         braced!(content in input);
         while !content.is_empty() {
             let vis: Visibility = content.parse()?;
             items.push({
-                let m: TraitItemMethod = content.parse()?;
-                ImplItemMethod {
+                let m: TraitItemFn = content.parse()?;
+                ImplItemFn {
                     attrs: m.attrs,
                     vis,
                     defaultness: None,
@@ -137,7 +132,7 @@ impl Parse for ImplMethods {
     }
 }
 
-fn rpc_client_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro2::TokenStream> {
+fn rpc_client_impl(input: proc_macro2::TokenStream) -> Result<proc_macro2::TokenStream> {
     let mut impl_block: ImplMethods = parse2(input)?;
 
     for item in &mut impl_block.items {
@@ -156,7 +151,7 @@ fn rpc_client_impl(input: proc_macro2::TokenStream) -> syn::Result<proc_macro2::
     })
 }
 
-fn rewrite_method(m: &mut ImplItemMethod) -> Result<()> {
+fn rewrite_method(m: &mut ImplItemFn) -> Result<()> {
     let method_name = m.sig.ident.to_string();
     let method_name = Literal::string(&method_name);
 
@@ -203,18 +198,15 @@ fn rewrite_method(m: &mut ImplItemMethod) -> Result<()> {
     Ok(())
 }
 
-fn method_def(m: &TraitItemMethod) -> Result<proc_macro2::TokenStream> {
-    let doc = m
-        .attrs
-        .iter()
-        .filter_map(|a| match a.parse_meta() {
-            Ok(Meta::NameValue(nv)) if nv.path.is_ident("doc") => match nv.lit {
-                Lit::Str(lit_str) => Some(lit_str),
-                _ => None,
-            },
-            _ => None,
-        })
-        .next();
+fn method_def(m: &TraitItemFn) -> Result<proc_macro2::TokenStream> {
+    let doc_attr = m.attrs.iter().rev().find(|a| a.path().is_ident("doc"));
+    let doc = if let Some(doc_attr) = doc_attr {
+        let v = &doc_attr.meta.require_name_value()?.value;
+        Some(parse2::<LitStr>(v.to_token_stream())?)
+    } else {
+        None
+    };
+
     let description = if let Some(doc) = doc {
         let doc = LitStr::new(doc.value().trim_start(), doc.span());
         quote!( "description": #doc, )
@@ -222,7 +214,7 @@ fn method_def(m: &TraitItemMethod) -> Result<proc_macro2::TokenStream> {
         quote!()
     };
 
-    let attrs = MethodAttributes::from_attributes(&m.attrs)?;
+    let attrs = MethodArgs::parse_attrs(&m.attrs)?;
     if attrs.pub_sub.is_some() {
         return Ok(quote!());
     }
@@ -257,7 +249,7 @@ fn method_def(m: &TraitItemMethod) -> Result<proc_macro2::TokenStream> {
                     if seg.ident == "Result" {
                         match &seg.arguments {
                             PathArguments::AngleBracketed(ang) => match ang.args.first() {
-                                Some(syn::GenericArgument::Type(t)) => t,
+                                Some(GenericArgument::Type(t)) => t,
                                 _ => t,
                             },
                             _ => t,
@@ -289,14 +281,14 @@ fn method_def(m: &TraitItemMethod) -> Result<proc_macro2::TokenStream> {
     })
 }
 
-fn add_method(m: &mut TraitItemMethod) -> Result<proc_macro2::TokenStream> {
+fn add_method(m: &mut TraitItemFn) -> Result<proc_macro2::TokenStream> {
     let method_name = &m.sig.ident;
 
     let (rpc_attributes, other_attributes) = m
         .attrs
         .drain(..)
-        .partition::<Vec<_>, _>(|a| a.path.is_ident("rpc"));
-    let attributes = MethodAttributes::from_attributes(&rpc_attributes)?;
+        .partition::<Vec<_>, _>(|a| a.path().is_ident("rpc"));
+    let attributes = MethodArgs::parse_attrs(&rpc_attributes)?;
     m.attrs = other_attributes;
 
     let method_name_str = Literal::string(&method_name.to_string());
@@ -379,8 +371,8 @@ fn add_method(m: &mut TraitItemMethod) -> Result<proc_macro2::TokenStream> {
     };
 
     Ok(if let Some(pub_sub) = attributes.pub_sub {
-        let notify_method_lit = LitStr::new(&pub_sub.notify, Span::call_site());
-        let unsubscribe_method_lit = LitStr::new(&pub_sub.unsubscribe, Span::call_site());
+        let notify_method_lit = &*pub_sub.notify;
+        let unsubscribe_method_lit = &*pub_sub.unsubscribe;
         quote! {
             jsonrpc_utils::pub_sub::add_pub_sub(rpc, #method_name_str, #notify_method_lit.into(), #unsubscribe_method_lit, {
                 let rpc_impl = rpc_impl.clone();
@@ -406,22 +398,87 @@ fn add_method(m: &mut TraitItemMethod) -> Result<proc_macro2::TokenStream> {
     })
 }
 
-#[derive(FromMeta)]
-struct RpcAttributes {
-    #[darling(default)]
+struct RpcArgs {
     openrpc: bool,
 }
 
-#[derive(FromAttributes)]
-#[darling(attributes(rpc))]
-struct MethodAttributes {
-    pub_sub: Option<PubSubAttribute>,
+impl Parse for RpcArgs {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let mut openrpc = false;
+        if !input.is_empty() {
+            let parser = meta::parser(|m| {
+                if m.path.is_ident("openrpc") {
+                    openrpc = true;
+                    Ok(())
+                } else {
+                    Err(m.error("unknown arg"))
+                }
+            });
+            parser.parse2(input.parse()?)?;
+        }
+        Ok(Self { openrpc })
+    }
 }
 
-#[derive(FromMeta)]
-struct PubSubAttribute {
+struct MethodArgs {
+    pub_sub: Option<PubSubArgs>,
+}
+
+impl MethodArgs {
+    fn parse_attrs(attrs: &[Attribute]) -> Result<Self> {
+        let mut pub_sub: Option<PubSubArgs> = None;
+        for a in attrs {
+            if a.path().is_ident("rpc") {
+                a.parse_nested_meta(|m| {
+                    if m.path.is_ident("pub_sub") {
+                        let content;
+                        parenthesized!(content in m.input);
+                        pub_sub = Some(content.parse()?);
+                        Ok(())
+                    } else {
+                        Err(m.error("unknown arg"))
+                    }
+                })?;
+            }
+        }
+        Ok(Self { pub_sub })
+    }
+}
+
+struct PubSubArgs {
     notify: String,
     unsubscribe: String,
+}
+
+impl Parse for PubSubArgs {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let mut notify: Option<LitStr> = None;
+        let mut unsubscribe: Option<LitStr> = None;
+
+        let parser = meta::parser(|m| {
+            if m.path.is_ident("notify") {
+                notify = Some(m.value()?.parse()?);
+            } else if m.path.is_ident("unsubscribe") {
+                unsubscribe = Some(m.value()?.parse()?);
+            } else {
+                return Err(m.error("unknown arg"));
+            }
+            Ok(())
+        });
+        parser.parse2(input.parse()?)?;
+
+        let notify = notify
+            .ok_or_else(|| input.error("missing arg notify"))?
+            .value();
+        let unsubscribe = unsubscribe
+            .ok_or_else(|| input.error("missing arg unsubscribe"))?
+            .value();
+
+        Ok(Self {
+            notify,
+            unsubscribe,
+        })
+    }
 }
 
 fn to_snake_case(ident: String) -> String {
