@@ -34,6 +34,7 @@ trait MyRpc {
     fn echo_my_struct(&self, my_struct: MyStruct) -> Result<MyStruct> {
         Ok(my_struct)
     }
+    #[rpc(name = "@ping")]
     fn ping(&self) -> Result<String> {
         Ok("pong".into())
     }

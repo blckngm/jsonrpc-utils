@@ -18,6 +18,7 @@ impl MyRpcClient {
     async fn sleep(&self, secs: u64) -> Result<u64>;
     async fn value(&self) -> Result<u64>;
     async fn add(&self, (x, y): (i32, i32), z: i32) -> Result<i32>;
+    #[rpc(name = "@ping")]
     async fn ping(&self) -> Result<String>;
 }
 
