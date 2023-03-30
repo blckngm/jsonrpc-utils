@@ -14,6 +14,7 @@ use serde_json::value::RawValue;
 trait MyRpc {
     async fn sleep(&self, x: u64) -> Result<u64>;
     async fn add(&self, (x, y): (i32, i32), z: i32) -> Result<i32>;
+    #[rpc(name = "@ping")]
     fn ping(&self) -> Result<String>;
 }
 
@@ -44,6 +45,7 @@ struct MyRpcClient {
 impl MyRpcClient {
     async fn sleep(&self, secs: u64) -> anyhow::Result<u64>;
     async fn add(&self, (x, y): (i32, i32), z: i32) -> anyhow::Result<i32>;
+    #[rpc(name = "@ping")]
     async fn ping(&self) -> anyhow::Result<String>;
 }
 
@@ -71,7 +73,7 @@ async fn test_server_client() {
     assert_eq!(
         client
             .inner
-            .rpc("ping", &RawValue::from_string("[]".into()).unwrap())
+            .rpc("@ping", &RawValue::from_string("[]".into()).unwrap())
             .await
             .unwrap(),
         "pong"

@@ -1,5 +1,5 @@
 use proc_macro::TokenStream;
-use proc_macro2::{Literal, Span};
+use proc_macro2::Span;
 use quote::{format_ident, quote, ToTokens};
 use syn::{
     braced, meta, parenthesized,
@@ -152,8 +152,11 @@ fn rpc_client_impl(input: proc_macro2::TokenStream) -> Result<proc_macro2::Token
 }
 
 fn rewrite_method(m: &mut ImplItemFn) -> Result<()> {
-    let method_name = m.sig.ident.to_string();
-    let method_name = Literal::string(&method_name);
+    let args = ClientMethodArgs::parse_attrs(&m.attrs)?;
+
+    m.attrs.retain(|a| !a.path().is_ident("rpc"));
+
+    let method_name = args.name.unwrap_or_else(|| m.sig.ident.to_string());
 
     let mut ident_counter = 0u32;
     let mut next_ident_counter = || {
@@ -218,7 +221,7 @@ fn method_def(m: &TraitItemFn) -> Result<proc_macro2::TokenStream> {
     if attrs.pub_sub.is_some() {
         return Ok(quote!());
     }
-    let name = LitStr::new(&m.sig.ident.to_string(), m.sig.ident.span());
+    let name = attrs.name.unwrap_or_else(|| m.sig.ident.to_string());
     let params: Vec<_> = m
         .sig
         .inputs
@@ -288,10 +291,11 @@ fn add_method(m: &mut TraitItemFn) -> Result<proc_macro2::TokenStream> {
         .attrs
         .drain(..)
         .partition::<Vec<_>, _>(|a| a.path().is_ident("rpc"));
-    let attributes = MethodArgs::parse_attrs(&rpc_attributes)?;
+    let args = MethodArgs::parse_attrs(&rpc_attributes)?;
     m.attrs = other_attributes;
 
-    let method_name_str = Literal::string(&method_name.to_string());
+    let rpc_method_name = args.name.unwrap_or_else(|| method_name.to_string());
+
     let mut params_names = Vec::new();
     let mut params_tys = Vec::new();
     let mut ident_counter = 0u32;
@@ -370,11 +374,11 @@ fn add_method(m: &mut TraitItemFn) -> Result<proc_macro2::TokenStream> {
         quote!(rpc_impl.#method_name(#params_names1))
     };
 
-    Ok(if let Some(pub_sub) = attributes.pub_sub {
+    Ok(if let Some(pub_sub) = args.pub_sub {
         let notify_method_lit = &*pub_sub.notify;
         let unsubscribe_method_lit = &*pub_sub.unsubscribe;
         quote! {
-            jsonrpc_utils::pub_sub::add_pub_sub(rpc, #method_name_str, #notify_method_lit.into(), #unsubscribe_method_lit, {
+            jsonrpc_utils::pub_sub::add_pub_sub(rpc, #rpc_method_name, #notify_method_lit.into(), #unsubscribe_method_lit, {
                 let rpc_impl = rpc_impl.clone();
                 move |params: jsonrpc_utils::jsonrpc_core::Params| {
                     #parse_params
@@ -384,7 +388,7 @@ fn add_method(m: &mut TraitItemFn) -> Result<proc_macro2::TokenStream> {
         }
     } else {
         quote! {
-            rpc.add_method(#method_name_str, {
+            rpc.add_method(#rpc_method_name, {
                 let rpc_impl = rpc_impl.clone();
                 move |params: jsonrpc_utils::jsonrpc_core::Params| {
                     let rpc_impl = rpc_impl.clone();
@@ -420,13 +424,41 @@ impl Parse for RpcArgs {
     }
 }
 
+struct ClientMethodArgs {
+    name: Option<String>,
+}
+
+impl ClientMethodArgs {
+    fn parse_attrs(attrs: &[Attribute]) -> Result<Self> {
+        let mut name: Option<LitStr> = None;
+
+        for a in attrs {
+            if a.path().is_ident("rpc") {
+                a.parse_nested_meta(|m| {
+                    if m.path.is_ident("name") {
+                        name = Some(m.value()?.parse()?);
+                    } else {
+                        return Err(m.error("unknown arg"));
+                    }
+                    Ok(())
+                })?;
+            }
+        }
+
+        let name = name.map(|n| n.value());
+        Ok(Self { name })
+    }
+}
+
 struct MethodArgs {
     pub_sub: Option<PubSubArgs>,
+    name: Option<String>,
 }
 
 impl MethodArgs {
     fn parse_attrs(attrs: &[Attribute]) -> Result<Self> {
         let mut pub_sub: Option<PubSubArgs> = None;
+        let mut name: Option<LitStr> = None;
         for a in attrs {
             if a.path().is_ident("rpc") {
                 a.parse_nested_meta(|m| {
@@ -435,13 +467,17 @@ impl MethodArgs {
                         parenthesized!(content in m.input);
                         pub_sub = Some(content.parse()?);
                         Ok(())
+                    } else if m.path.is_ident("name") {
+                        name = Some(m.value()?.parse()?);
+                        Ok(())
                     } else {
                         Err(m.error("unknown arg"))
                     }
                 })?;
             }
         }
-        Ok(Self { pub_sub })
+        let name = name.map(|n| n.value());
+        Ok(Self { name, pub_sub })
     }
 }
 
@@ -517,6 +553,7 @@ mod tests {
             async fn sleep(&self, x: u64) -> Result<u64>;
         ));
         test_method(quote!(
+            #[rpc(name = "@sleep")]
             fn sleep(&self, a: i32, b: i32) -> Result<i32>;
         ));
         test_method(quote!(

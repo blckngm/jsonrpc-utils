@@ -17,6 +17,7 @@ struct MyRpcClient {
 impl MyRpcClient {
     fn sleep(&self, secs: u64) -> Result<u64>;
     fn add(&self, (x, y): (i32, i32), z: i32) -> Result<i32>;
+    #[rpc(name = "@ping")]
     fn ping(&self) -> Result<String>;
 }
 
