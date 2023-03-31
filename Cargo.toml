@@ -16,10 +16,11 @@ name = "openrpc"
 doc-scrape-examples = true
 
 [features]
-default = ["macros"]
-macros = ["jsonrpc-utils-macros", "anyhow"]
-client = ["reqwest", "anyhow"]
-blocking-client = ["reqwest/blocking", "anyhow"]
+server = ["dep:tokio", "dep:futures-core", "dep:futures-util", "dep:hex", "dep:rand"]
+axum = ["dep:axum", "server"]
+macros = ["dep:jsonrpc-utils-macros", "dep:anyhow"]
+client = ["reqwest", "dep:anyhow"]
+blocking-client = ["reqwest/blocking", "dep:anyhow"]
 
 [package.metadata.docs.rs]
 all-features = true
@@ -27,14 +28,14 @@ cargo-args = ["-Zunstable-options", "-Zrustdoc-scrape-examples"]
 
 [dependencies]
 jsonrpc-utils-macros = { path = "./jsonrpc-utils-macros", version = "=0.2.0-preview.4", optional = true }
-axum = { version = "0.6", features = ["ws"] }
-futures-core = "0.3.21"
-futures-util = "0.3.21"
-hex = "0.4.3"
+axum = { version = "0.6", features = ["ws"], optional = true }
+futures-core = { version = "0.3.21", optional = true }
+futures-util = { version = "0.3.21", optional = true }
+hex = { version = "0.4.3", optional = true }
 jsonrpc-core = "18.0.0"
 pin-project-lite = "0.2.9"
-rand = "0.8.5"
-tokio = { version = "1.19.0", features = ["sync", "macros"] }
+rand = { version = "0.8.5", optional = true }
+tokio = { version = "1.19.0", features = ["sync", "macros", "time", "rt"], optional = true }
 serde_json = { version = "1.0.81", features = ["raw_value"] }
 reqwest = { version = "0.11.11", optional = true, default-features = false }
 anyhow = { version = "1.0.57", optional = true }
