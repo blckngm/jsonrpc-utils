@@ -1,2 +1,2 @@
-status = ["CI"]
+status = ["test"]
 delete_merged_branches = true
