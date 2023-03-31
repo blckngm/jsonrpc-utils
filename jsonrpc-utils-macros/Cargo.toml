@@ -1,6 +1,6 @@
 [package]
 name = "jsonrpc-utils-macros"
-version = "0.2.0-preview.4"
+version = "0.2.0-preview.5"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/sopium/jsonrpc-utils"
