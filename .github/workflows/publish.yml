@@ -2,7 +2,8 @@ name: Publish
 
 on:
   push:
-    tags: v.+
+    tags:
+      - "v.*"
   workflow_dispatch:
     inputs:
       dry_run:
