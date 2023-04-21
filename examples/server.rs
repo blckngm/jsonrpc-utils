@@ -20,6 +20,17 @@ async fn main() {
         tokio::time::sleep(Duration::from_secs(x)).await;
         Ok(x.into())
     });
+    rpc.add_method("@ping", |_| async move { Ok("pong".into()) });
+    rpc.add_method("value", |params: Params| async move {
+        let x: Option<u64> = params.parse()?;
+        Ok(x.unwrap_or_default().into())
+    });
+    rpc.add_method("add", |params: Params| async move {
+        let ((x, y), z): ((i32, i32), i32) = params.parse()?;
+        let sum = x + y + z;
+        Ok(sum.into())
+    });
+
     add_pub_sub(
         &mut rpc,
         "subscribe",
@@ -52,6 +63,7 @@ async fn main() {
     // HTTP and WS server.
     let ws_config = stream_config.clone().with_keep_alive(true);
     let app = jsonrpc_router("/rpc", rpc.clone(), ws_config);
+
     // You can use additional tower-http middlewares to add e.g. CORS.
     tokio::spawn(async move {
         axum::Server::bind(&"0.0.0.0:3000".parse().unwrap())
