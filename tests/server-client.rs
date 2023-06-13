@@ -56,10 +56,10 @@ async fn test_server_client() {
     let rpc = Arc::new(rpc);
     let stream_config = StreamServerConfig::default().with_keep_alive(true);
     let app = jsonrpc_router("/rpc", rpc, stream_config);
-    let server = axum::Server::bind(&"[::1]:0".parse().unwrap()).serve(app.into_make_service());
-    let server_addr = server.local_addr();
+    let listener = tokio::net::TcpListener::bind(&"[::1]:0").await.unwrap();
+    let server_addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
-        server.await.unwrap();
+        axum::serve(listener, app).await.unwrap();
     });
 
     let client = MyRpcClient {

@@ -66,10 +66,8 @@ async fn main() {
 
     // You can use additional tower-http middlewares to add e.g. CORS.
     tokio::spawn(async move {
-        axum::Server::bind(&"0.0.0.0:3000".parse().unwrap())
-            .serve(app.into_make_service())
-            .await
-            .unwrap();
+        let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+        axum::serve(listener, app).await.unwrap();
     });
 
     // TCP server with line delimited json codec.
