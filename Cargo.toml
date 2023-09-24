@@ -16,7 +16,7 @@ name = "openrpc"
 doc-scrape-examples = true
 
 [features]
-server = ["dep:tokio", "dep:futures-core", "dep:futures-util", "dep:hex", "dep:rand"]
+server = ["dep:tokio", "dep:futures-core", "dep:futures-util", "dep:hex", "dep:rand", "dep:tokio-util"]
 axum = ["dep:axum", "server"]
 macros = ["dep:jsonrpc-utils-macros", "dep:anyhow"]
 client = ["reqwest", "dep:anyhow"]
@@ -39,6 +39,7 @@ tokio = { version = "1.19.0", features = ["sync", "macros", "time", "rt"], optio
 serde_json = { version = "1.0.81", features = ["raw_value"] }
 reqwest = { version = "0.11.11", optional = true, default-features = false }
 anyhow = { version = "1.0.57", optional = true }
+tokio-util = { version = "0.7.3", optional = true }
 
 [dev-dependencies]
 async-stream = "0.3.3"

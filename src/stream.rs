@@ -5,12 +5,12 @@
 
 use std::{sync::atomic::AtomicU64, time::Duration};
 
+use crate::pub_sub::Session;
 use futures_core::Stream;
 use futures_util::{Sink, SinkExt, StreamExt};
 use jsonrpc_core::{MetaIoHandler, Metadata};
 use tokio::{sync::mpsc::channel, time::Instant};
-
-use crate::pub_sub::Session;
+use tokio_util::sync::CancellationToken;
 
 #[derive(Clone)]
 pub struct StreamServerConfig {
@@ -19,6 +19,7 @@ pub struct StreamServerConfig {
     pub(crate) keep_alive: bool,
     pub(crate) keep_alive_duration: Duration,
     pub(crate) ping_interval: Duration,
+    pub(crate) exit_signal: Option<CancellationToken>,
 }
 
 impl Default for StreamServerConfig {
@@ -29,6 +30,7 @@ impl Default for StreamServerConfig {
             keep_alive: false,
             keep_alive_duration: Duration::from_secs(60),
             ping_interval: Duration::from_secs(19),
+            exit_signal: None,
         }
     }
 }
@@ -44,6 +46,17 @@ impl StreamServerConfig {
     pub fn with_channel_size(mut self, channel_size: usize) -> Self {
         assert!(channel_size > 0);
         self.channel_size = channel_size;
+        self
+    }
+
+    /// Set exit signal.
+    ///
+    /// Default is None
+    ///
+    ///
+    /// When `exit_signal` (CancellationToken) is cancelled, the stream will stop
+    pub fn with_exit_signal(mut self, exit_signal: CancellationToken) -> Self {
+        self.exit_signal = Some(exit_signal);
         self
     }
 
@@ -118,7 +131,9 @@ pub async fn serve_stream_sink<E, T: Metadata + From<Session>>(
     let mut ping_interval = tokio::time::interval(config.ping_interval);
     ping_interval.reset();
     ping_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-
+    let exit_signal = config
+        .exit_signal
+        .map_or_else(|| CancellationToken::new(), |s| s);
     let mut result_stream = stream
         .map(|message_or_err| async {
             let msg = message_or_err?;
@@ -155,6 +170,9 @@ pub async fn serve_stream_sink<E, T: Metadata + From<Session>>(
             }
             _ = ping_interval.tick(), if config.keep_alive => {
                 sink.send(StreamMsg::Ping).await?;
+            }
+            _ = exit_signal.cancelled() => {
+                break;
             }
         }
     }
