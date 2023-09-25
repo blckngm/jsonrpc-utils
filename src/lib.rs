@@ -1,5 +1,5 @@
 //! Alternative pub/sub, server, client and macros for jsonrpc-core.
-#![cfg_attr(doc, feature(doc_auto_cfg))]
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
 
 pub extern crate jsonrpc_core;
 pub extern crate serde_json;

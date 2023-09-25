@@ -24,6 +24,7 @@ blocking-client = ["reqwest/blocking", "dep:anyhow"]
 
 [package.metadata.docs.rs]
 all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 cargo-args = ["-Zunstable-options", "-Zrustdoc-scrape-examples"]
 
 [dependencies]
