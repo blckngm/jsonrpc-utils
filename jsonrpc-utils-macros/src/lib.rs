@@ -80,10 +80,12 @@ pub fn rpc(args: TokenStream, input: TokenStream) -> TokenStream {
     let result = quote! {
         #item_trait
 
+        /// Add RPC methods to the given `jsonrpc_utils::jsonrpc_core::MetaIoHandler`.
         #vis fn #add_method_name(rpc: &mut jsonrpc_utils::jsonrpc_core::MetaIoHandler<Option<jsonrpc_utils::pub_sub::Session>>, rpc_impl: impl #trait_name + Clone + Send + Sync + 'static) {
             #(#add_methods)*
         }
 
+        /// Generate OpenRPC document for the RPC methods.
         #doc_func
     };
 
