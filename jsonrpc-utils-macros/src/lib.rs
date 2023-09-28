@@ -204,16 +204,29 @@ fn rewrite_method(m: &mut ImplItemFn) -> Result<()> {
 }
 
 fn method_def(m: &TraitItemFn) -> Result<proc_macro2::TokenStream> {
-    let doc_attr = m.attrs.iter().rev().find(|a| a.path().is_ident("doc"));
-    let doc = if let Some(doc_attr) = doc_attr {
-        let v = &doc_attr.meta.require_name_value()?.value;
-        Some(parse2::<LitStr>(v.to_token_stream())?)
+    let doc_attrs = m
+        .attrs
+        .iter()
+        .filter(|a| a.path().is_ident("doc"))
+        .collect::<Vec<_>>();
+    let doc = if doc_attrs.len() > 0 {
+        let mut values = vec![];
+        for a in doc_attrs {
+            let v = &a.meta.require_name_value()?.value;
+            values.push(parse2::<LitStr>(v.to_token_stream())?);
+        }
+        Some(values)
     } else {
         None
     };
 
-    let description = if let Some(doc) = doc {
-        let doc = LitStr::new(doc.value().trim_start(), doc.span());
+    let description = if let Some(lines) = doc {
+        let doc = lines
+            .iter()
+            .map(|l| l.value())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let doc = LitStr::new(&doc, Span::call_site());
         quote!( "description": #doc, )
     } else {
         quote!()
