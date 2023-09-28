@@ -36,6 +36,7 @@ pub fn rpc(args: TokenStream, input: TokenStream) -> TokenStream {
         };
         let title = &*trait_name_snake;
         quote!(
+            /// Generate OpenRPC document for the RPC methods.
             #vis fn #doc_func_name() -> jsonrpc_utils::serde_json::Value {
                 #[allow(unused)]
                 use schemars::JsonSchema;
@@ -85,7 +86,6 @@ pub fn rpc(args: TokenStream, input: TokenStream) -> TokenStream {
             #(#add_methods)*
         }
 
-        /// Generate OpenRPC document for the RPC methods.
         #doc_func
     };
 
@@ -209,7 +209,7 @@ fn method_def(m: &TraitItemFn) -> Result<proc_macro2::TokenStream> {
         .iter()
         .filter(|a| a.path().is_ident("doc"))
         .collect::<Vec<_>>();
-    let doc = if doc_attrs.len() > 0 {
+    let doc = if !doc_attrs.is_empty() {
         let mut values = vec![];
         for a in doc_attrs {
             let v = &a.meta.require_name_value()?.value;
