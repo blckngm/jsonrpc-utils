@@ -22,7 +22,8 @@ struct MyStruct {
 #[rpc(openrpc)]
 #[async_trait]
 trait MyRpc {
-    /// Sleep.
+    /// Sleep ...
+    /// Hello world for mutiple lines of comments.
     async fn sleep(&self, x: u64) -> Result<u64> {
         tokio::time::sleep(Duration::from_secs(x)).await;
         Ok(x)
@@ -56,6 +57,7 @@ async fn main() {
         let doc = doc.clone();
         async move { Ok(doc) }
     });
+
     let rpc = Arc::new(rpc);
 
     let stream_config = StreamServerConfig::default().with_keep_alive(true);
