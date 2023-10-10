@@ -19,6 +19,7 @@ struct MyStruct {
     z: MyStruct0,
 }
 
+/// This is doc for `MyRpc`.
 #[rpc(openrpc)]
 #[async_trait]
 trait MyRpc {

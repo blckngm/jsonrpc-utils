@@ -34,6 +34,7 @@ pub fn rpc(args: TokenStream, input: TokenStream) -> TokenStream {
             Ok(x) => x,
             Err(e) => return e.to_compile_error().into(),
         };
+        let description = gen_desc_from_attrs(&item_trait.attrs).unwrap();
         let title = &*trait_name_snake;
         quote!(
             /// Generate OpenRPC document for the RPC methods.
@@ -52,6 +53,7 @@ pub fn rpc(args: TokenStream, input: TokenStream) -> TokenStream {
                     "info": {
                         "title": #title,
                         "version": "1.0.0",
+                        #description
                     },
                     "methods": methods,
                     "components": {
@@ -204,34 +206,7 @@ fn rewrite_method(m: &mut ImplItemFn) -> Result<()> {
 }
 
 fn method_def(m: &TraitItemFn) -> Result<proc_macro2::TokenStream> {
-    let doc_attrs = m
-        .attrs
-        .iter()
-        .filter(|a| a.path().is_ident("doc"))
-        .collect::<Vec<_>>();
-    let doc = if !doc_attrs.is_empty() {
-        let mut values = vec![];
-        for a in doc_attrs {
-            let v = &a.meta.require_name_value()?.value;
-            values.push(parse2::<LitStr>(v.to_token_stream())?);
-        }
-        Some(values)
-    } else {
-        None
-    };
-
-    let description = if let Some(lines) = doc {
-        let doc = lines
-            .iter()
-            .map(|l| l.value())
-            .collect::<Vec<_>>()
-            .join("\n");
-        let doc = LitStr::new(&doc, Span::call_site());
-        quote!( "description": #doc, )
-    } else {
-        quote!()
-    };
-
+    let description = gen_desc_from_attrs(&m.attrs)?;
     let attrs = MethodArgs::parse_attrs(&m.attrs)?;
     if attrs.pub_sub.is_some() {
         return Ok(quote!());
@@ -415,6 +390,36 @@ fn add_method(m: &mut TraitItemFn) -> Result<proc_macro2::TokenStream> {
             });
         }
     })
+}
+
+fn gen_desc_from_attrs(attrs: &[Attribute]) -> Result<proc_macro2::TokenStream> {
+    let doc_attrs = attrs
+        .iter()
+        .filter(|a| a.path().is_ident("doc"))
+        .collect::<Vec<_>>();
+    let doc = if !doc_attrs.is_empty() {
+        let mut values = vec![];
+        for a in doc_attrs {
+            let v = &a.meta.require_name_value()?.value;
+            values.push(parse2::<LitStr>(v.to_token_stream())?);
+        }
+        Some(values)
+    } else {
+        None
+    };
+
+    let description = if let Some(lines) = doc {
+        let doc = lines
+            .iter()
+            .map(|l| l.value())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let doc = LitStr::new(&doc, Span::call_site());
+        quote!( "description": #doc, )
+    } else {
+        quote!()
+    };
+    Ok(description)
 }
 
 struct RpcArgs {
