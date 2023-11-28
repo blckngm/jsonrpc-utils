@@ -5,20 +5,21 @@
 
 use std::{sync::atomic::AtomicU64, time::Duration};
 
-use futures_core::Stream;
-use futures_util::{Sink, SinkExt, StreamExt};
+use futures_core::{Future, Stream};
+use futures_util::{future::Pending, Sink, SinkExt, StreamExt};
 use jsonrpc_core::{MetaIoHandler, Metadata};
 use tokio::{sync::mpsc::channel, time::Instant};
 
 use crate::pub_sub::Session;
 
 #[derive(Clone)]
-pub struct StreamServerConfig {
+pub struct StreamServerConfig<S = Pending<()>> {
     pub(crate) channel_size: usize,
     pub(crate) pipeline_size: usize,
     pub(crate) keep_alive: bool,
     pub(crate) keep_alive_duration: Duration,
     pub(crate) ping_interval: Duration,
+    pub(crate) shutdown_signal: S,
 }
 
 impl Default for StreamServerConfig {
@@ -29,11 +30,12 @@ impl Default for StreamServerConfig {
             keep_alive: false,
             keep_alive_duration: Duration::from_secs(60),
             ping_interval: Duration::from_secs(19),
+            shutdown_signal: futures_util::future::pending(),
         }
     }
 }
 
-impl StreamServerConfig {
+impl<S> StreamServerConfig<S> {
     /// Set websocket channel size.
     ///
     /// Default is 8.
@@ -86,6 +88,20 @@ impl StreamServerConfig {
         self.ping_interval = ping_interval;
         self
     }
+
+    pub fn with_shutdown<S1>(self, shutdown: S1) -> StreamServerConfig<S1>
+    where
+        S1: Future<Output = ()>,
+    {
+        StreamServerConfig {
+            channel_size: self.channel_size,
+            pipeline_size: self.pipeline_size,
+            keep_alive: self.keep_alive,
+            keep_alive_duration: self.keep_alive_duration,
+            ping_interval: self.ping_interval,
+            shutdown_signal: shutdown,
+        }
+    }
 }
 
 pub enum StreamMsg {
@@ -99,11 +115,11 @@ pub enum StreamMsg {
 /// # Keepalive
 ///
 /// TODO: document keepalive mechanism.
-pub async fn serve_stream_sink<E, T: Metadata + From<Session>>(
+pub async fn serve_stream_sink<E, T: Metadata + From<Session>, S: Future<Output = ()> + Unpin>(
     rpc: &MetaIoHandler<T>,
     mut sink: impl Sink<StreamMsg, Error = E> + Unpin,
     stream: impl Stream<Item = Result<StreamMsg, E>> + Unpin,
-    config: StreamServerConfig,
+    config: StreamServerConfig<S>,
 ) -> Result<(), E> {
     static SESSION_ID: AtomicU64 = AtomicU64::new(0);
 
@@ -129,6 +145,7 @@ pub async fn serve_stream_sink<E, T: Metadata + From<Session>>(
             Ok::<_, E>(rpc.handle_request(&msg, session.clone().into()).await)
         })
         .buffer_unordered(config.pipeline_size);
+    let mut shutdown = config.shutdown_signal;
     loop {
         tokio::select! {
             result = result_stream.next() => {
@@ -155,6 +172,9 @@ pub async fn serve_stream_sink<E, T: Metadata + From<Session>>(
             }
             _ = ping_interval.tick(), if config.keep_alive => {
                 sink.send(StreamMsg::Ping).await?;
+            }
+            _ = &mut shutdown => {
+                break;
             }
         }
     }

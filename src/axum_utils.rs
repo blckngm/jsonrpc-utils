@@ -9,6 +9,7 @@ use axum::{
     routing::post,
     Extension, Json, Router,
 };
+use futures_core::Future;
 use futures_util::{SinkExt, StreamExt};
 use jsonrpc_core::{MetaIoHandler, Metadata};
 
@@ -45,11 +46,15 @@ pub async fn handle_jsonrpc<T: Default + Metadata>(
 ///
 /// This supports regular jsonrpc calls and notifications, as well as pub/sub
 /// with [`mod@crate::pub_sub`].
-pub async fn handle_jsonrpc_ws<T: Metadata + From<Session>>(
+pub async fn handle_jsonrpc_ws<T, S>(
     Extension(io): Extension<Arc<MetaIoHandler<T>>>,
-    Extension(config): Extension<StreamServerConfig>,
+    Extension(config): Extension<StreamServerConfig<S>>,
     ws: WebSocketUpgrade,
-) -> impl IntoResponse {
+) -> impl IntoResponse
+where
+    T: Metadata + From<Session>,
+    S: Future<Output = ()> + Unpin + Send + 'static,
+{
     ws.on_upgrade(move |socket| async move {
         let (socket_write, socket_read) = socket.split();
         let write = socket_write.with(|msg: StreamMsg| async move {
@@ -78,15 +83,18 @@ pub async fn handle_jsonrpc_ws<T: Metadata + From<Session>>(
 ///
 /// Subscription added via [`mod@crate::pub_sub`] is supported on WebSocket
 /// connections.
-pub fn jsonrpc_router(
+pub fn jsonrpc_router<S>(
     path: &str,
     rpc: Arc<MetaIoHandler<Option<Session>>>,
-    websocket_config: StreamServerConfig,
-) -> Router {
+    websocket_config: StreamServerConfig<S>,
+) -> Router
+where
+    S: Future<Output = ()> + Unpin + Send + Sync + Clone + 'static,
+{
     Router::new()
         .route(
             path,
-            post(handle_jsonrpc::<Option<Session>>).get(handle_jsonrpc_ws::<Option<Session>>),
+            post(handle_jsonrpc::<Option<Session>>).get(handle_jsonrpc_ws::<Option<Session>, S>),
         )
         .layer(Extension(rpc))
         .layer(Extension(websocket_config))
