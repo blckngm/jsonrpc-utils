@@ -5,8 +5,11 @@
 
 use std::{sync::atomic::AtomicU64, time::Duration};
 
-use futures_core::Stream;
-use futures_util::{Sink, SinkExt, StreamExt};
+use futures_core::{future::BoxFuture, Future, Stream};
+use futures_util::{
+    future::{self, Shared},
+    FutureExt, Sink, SinkExt, StreamExt,
+};
 use jsonrpc_core::{MetaIoHandler, Metadata};
 use tokio::{sync::mpsc::channel, time::Instant};
 
@@ -19,6 +22,7 @@ pub struct StreamServerConfig {
     pub(crate) keep_alive: bool,
     pub(crate) keep_alive_duration: Duration,
     pub(crate) ping_interval: Duration,
+    pub(crate) shutdown_signal: Shared<BoxFuture<'static, ()>>,
 }
 
 impl Default for StreamServerConfig {
@@ -29,6 +33,7 @@ impl Default for StreamServerConfig {
             keep_alive: false,
             keep_alive_duration: Duration::from_secs(60),
             ping_interval: Duration::from_secs(19),
+            shutdown_signal: future::pending().boxed().shared(),
         }
     }
 }
@@ -86,6 +91,14 @@ impl StreamServerConfig {
         self.ping_interval = ping_interval;
         self
     }
+
+    pub fn with_shutdown<S>(mut self, shutdown: S) -> StreamServerConfig
+    where
+        S: Future<Output = ()> + Send + 'static,
+    {
+        self.shutdown_signal = shutdown.boxed().shared();
+        self
+    }
 }
 
 pub enum StreamMsg {
@@ -129,6 +142,7 @@ pub async fn serve_stream_sink<E, T: Metadata + From<Session>>(
             Ok::<_, E>(rpc.handle_request(&msg, session.clone().into()).await)
         })
         .buffer_unordered(config.pipeline_size);
+    let mut shutdown = config.shutdown_signal;
     loop {
         tokio::select! {
             result = result_stream.next() => {
@@ -155,6 +169,9 @@ pub async fn serve_stream_sink<E, T: Metadata + From<Session>>(
             }
             _ = ping_interval.tick(), if config.keep_alive => {
                 sink.send(StreamMsg::Ping).await?;
+            }
+            _ = &mut shutdown => {
+                break;
             }
         }
     }
