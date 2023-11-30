@@ -14,7 +14,7 @@ use jsonrpc_utils::{
 trait MyRpc {
     async fn sleep(&self, x: u64) -> Result<u64>;
     async fn value(&self, x: Option<u64>) -> Result<u64>;
-    async fn add(&self, (x, y): (i32, i32), z: i32) -> Result<i32>;
+    async fn add(&self, (x, y): (i32, i32), z: Option<i32>) -> Result<i32>;
     #[rpc(name = "@ping")]
     fn ping(&self) -> Result<String>;
 
@@ -37,8 +37,8 @@ impl MyRpc for RpcImpl {
         Ok(x.unwrap_or_default())
     }
 
-    async fn add(&self, (x, y): (i32, i32), z: i32) -> Result<i32> {
-        Ok(x + y + z)
+    async fn add(&self, (x, y): (i32, i32), z: Option<i32>) -> Result<i32> {
+        Ok(x + y + z.unwrap_or_default())
     }
 
     fn ping(&self) -> Result<String> {

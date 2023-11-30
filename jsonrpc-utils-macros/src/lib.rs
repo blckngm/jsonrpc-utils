@@ -330,24 +330,26 @@ fn add_method(m: &mut TraitItemFn) -> Result<proc_macro2::TokenStream> {
             let mut arr = match params {
                 jsonrpc_utils::jsonrpc_core::Params::Array(arr) => arr.into_iter(),
                 jsonrpc_utils::jsonrpc_core::Params::None => Vec::new().into_iter(),
-                _ => return Err(jsonrpc_utils::jsonrpc_core::Error::invalid_params("")),
+                _ => return Err(jsonrpc_utils::jsonrpc_core::Error::invalid_params("Invalid params: invalid type map, expect an array or null")),
             };
         };
         for i in 0..required_params {
             let p = &params_names[i];
+            let p_str = LitStr::new(&p.to_string(), p.span());
             let ty = params_tys[i];
             parse_params.extend(quote! {
-                let #p: #ty = jsonrpc_utils::serde_json::from_value(arr.next().ok_or_else(|| jsonrpc_utils::jsonrpc_core::Error::invalid_params(""))?).map_err(|_|
-                    jsonrpc_utils::jsonrpc_core::Error::invalid_params("")
+                let #p: #ty = jsonrpc_utils::serde_json::from_value(arr.next().ok_or_else(|| jsonrpc_utils::jsonrpc_core::Error::invalid_params(format!("Missing required parameter `{}`", #p_str)))?).map_err(|e|
+                    jsonrpc_utils::jsonrpc_core::Error::invalid_params(format!("Invalid parameter for `{}`: {}", #p_str, e))
                 )?;
             });
         }
         for i in required_params..params_names.len() {
             let p = &params_names[i];
+            let p_str = LitStr::new(&p.to_string(), p.span());
             let ty = params_tys[i];
             parse_params.extend(quote! {
                 let #p: #ty = match arr.next() {
-                    Some(v) => jsonrpc_utils::serde_json::from_value(v).map_err(|_| jsonrpc_utils::jsonrpc_core::Error::invalid_params(""))?,
+                    Some(v) => jsonrpc_utils::serde_json::from_value(v).map_err(|e| jsonrpc_utils::jsonrpc_core::Error::invalid_params(format!("Invalid parameter for `{}`: {}", #p_str, e)))?,
                     None => None,
                 };
             });
