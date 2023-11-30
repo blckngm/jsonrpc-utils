@@ -28,7 +28,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 cargo-args = ["-Zunstable-options", "-Zrustdoc-scrape-examples"]
 
 [dependencies]
-jsonrpc-utils-macros = { path = "./jsonrpc-utils-macros", version = "=0.2.3", optional = true }
+jsonrpc-utils-macros = { path = "./jsonrpc-utils-macros", version = "=0.2.4", optional = true }
 axum = { version = "0.6", features = ["ws"], optional = true }
 futures-core = { version = "0.3.21", optional = true }
 futures-util = { version = "0.3.21", optional = true }
