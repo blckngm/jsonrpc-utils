@@ -145,6 +145,10 @@ pub async fn serve_stream_sink<E, T: Metadata + From<Session>>(
     let mut shutdown = config.shutdown_signal;
     loop {
         tokio::select! {
+            // Always poll the result stream first, so that subscription id will
+            // be sent before subscription messages (which might have already
+            // been sent to the rx channel by the publishing task).
+            biased;
             result = result_stream.next() => {
                 match result {
                     Some(result) => {
@@ -164,11 +168,11 @@ pub async fn serve_stream_sink<E, T: Metadata + From<Session>>(
             Some(msg) = rx.recv() => {
                 sink.send(StreamMsg::Str(msg)).await?;
             }
-            _ = &mut dead_timer, if config.keep_alive => {
-                break;
-            }
             _ = ping_interval.tick(), if config.keep_alive => {
                 sink.send(StreamMsg::Ping).await?;
+            }
+            _ = &mut dead_timer, if config.keep_alive => {
+                break;
             }
             _ = &mut shutdown => {
                 break;

@@ -166,6 +166,7 @@ pub fn add_pub_sub<T: Send + 'static>(
                         tokio::pin!(stream);
                         loop {
                             tokio::select! {
+                                biased;
                                 msg = stream.next() => {
                                     match msg {
                                         Some(msg) => {
