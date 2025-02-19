@@ -1,9 +1,9 @@
 [package]
 name = "jsonrpc-utils"
-version = "0.3.1"
+version = "0.4.0"
 edition = "2021"
 license = "MIT"
-repository = "https://github.com/sopium/jsonrpc-utils"
+repository = "https://github.com/blckngm/jsonrpc-utils"
 description = "Alternative pub/sub and server implementations for jsonrpc-core"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -28,7 +28,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 cargo-args = ["-Zunstable-options", "-Zrustdoc-scrape-examples"]
 
 [dependencies]
-jsonrpc-utils-macros = { path = "./jsonrpc-utils-macros", version = "=0.2.4", optional = true }
+jsonrpc-utils-macros = { path = "./jsonrpc-utils-macros", version = "=0.2.5", optional = true }
 axum = { version = "0.8.1", features = ["ws"], optional = true }
 futures-core = { version = "0.3.21", optional = true }
 futures-util = { version = "0.3.21", optional = true }
