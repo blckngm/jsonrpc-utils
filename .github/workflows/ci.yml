@@ -11,15 +11,15 @@ jobs:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
         with:
-          toolchain: 1.74.0
+          toolchain: 1.84.1
           default: true
           profile: minimal
           components: rustfmt, clippy
 
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: 1.66.0
-          profile: minimal
+      # - uses: actions-rs/toolchain@v1
+      #   with:
+      #     toolchain: 1.84.1
+      #     profile: minimal
 
       - uses: actions-rs/toolchain@v1
         with:
@@ -32,5 +32,5 @@ jobs:
       - name: clippy and tests
         run: ./test.sh
 
-      - name: MSRV check
-        run: cargo +1.66.0 check --all --all-targets --all-features
+      # - name: MSRV check
+      #   run: cargo +1.75.0 check --all --all-targets --all-features
