@@ -29,7 +29,7 @@ cargo-args = ["-Zunstable-options", "-Zrustdoc-scrape-examples"]
 
 [dependencies]
 jsonrpc-utils-macros = { path = "./jsonrpc-utils-macros", version = "=0.2.4", optional = true }
-axum = { version = "0.7", features = ["ws"], optional = true }
+axum = { version = "0.8.1", features = ["ws"], optional = true }
 futures-core = { version = "0.3.21", optional = true }
 futures-util = { version = "0.3.21", optional = true }
 hex = { version = "0.4.3", optional = true }
@@ -49,5 +49,5 @@ tokio-util = { version = "0.7.3", features = ["codec"] }
 async-trait = "0.1.56"
 schemars = "0.8.12"
 serde = { version = "1.0.156", features = ["derive"] }
-tower-http = { version = "0.5.0", features = ["cors"] }
+tower-http = { version = "0.6.2", features = ["cors"] }
 jsonrpc-http-server = "18.0.0"

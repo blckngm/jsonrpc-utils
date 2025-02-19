@@ -314,11 +314,7 @@ fn add_method(m: &mut TraitItemFn) -> Result<proc_macro2::TokenStream> {
         .iter()
         .rev()
         .take_while(|t| match t {
-            Type::Path(t) => t
-                .path
-                .segments
-                .first()
-                .map_or(false, |s| s.ident == "Option"),
+            Type::Path(t) => t.path.segments.first().is_some_and(|s| s.ident == "Option"),
             _ => false,
         })
         .count();

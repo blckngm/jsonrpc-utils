@@ -12,6 +12,7 @@ pub mod pub_sub;
 pub mod stream;
 
 mod client;
+#[cfg(any(feature = "client", feature = "blocking-client"))]
 pub use client::*;
 
 #[cfg(feature = "macros")]
