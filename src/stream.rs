@@ -3,7 +3,7 @@
 //! Use `tokio_util::codec` to convert `AsyncRead`, `AsyncWrite` to `Stream`
 //! and `Sink`. Use `LinesCodec` or define you own codec.
 
-use std::{sync::atomic::AtomicU64, time::Duration};
+use std::{ops::Deref, sync::atomic::AtomicU64, time::Duration};
 
 use futures_core::{future::BoxFuture, Future, Stream};
 use futures_util::{
@@ -39,7 +39,7 @@ impl Default for StreamServerConfig {
 }
 
 impl StreamServerConfig {
-    /// Set websocket channel size.
+    /// Set pub-sub channel buffer size.
     ///
     /// Default is 8.
     ///
@@ -101,8 +101,13 @@ impl StreamServerConfig {
     }
 }
 
-pub enum StreamMsg {
-    Str(String),
+/// Request/response message for streaming JSON-RPC servers.
+///
+/// S should be some string-like type. For TCP it's `String`, for WebSocket
+/// it's `Utf8Bytes`.
+#[derive(Debug, PartialEq, Eq)]
+pub enum StreamMsg<S> {
+    Str(S),
     Ping,
     Pong,
 }
@@ -111,13 +116,20 @@ pub enum StreamMsg {
 ///
 /// # Keepalive
 ///
-/// TODO: document keepalive mechanism.
-pub async fn serve_stream_sink<E, T: Metadata + From<Session>>(
+/// We will response to ping messages with pong messages. We will send out ping
+/// messages at the specified interval if keepalive is enabled. If keepalive is
+/// enabled and we don't receive any messages over the stream for
+/// `keep_alive_duration`, we will stop serving (and this function will return).
+pub async fn serve_stream_sink<E, T, S>(
     rpc: &MetaIoHandler<T>,
-    mut sink: impl Sink<StreamMsg, Error = E> + Unpin,
-    stream: impl Stream<Item = Result<StreamMsg, E>> + Unpin,
+    mut sink: impl Sink<StreamMsg<S>, Error = E> + Unpin,
+    stream: impl Stream<Item = Result<StreamMsg<S>, E>> + Unpin,
     config: StreamServerConfig,
-) -> Result<(), E> {
+) -> Result<(), E>
+where
+    T: Metadata + From<Session>,
+    S: From<String> + Deref<Target = str>,
+{
     static SESSION_ID: AtomicU64 = AtomicU64::new(0);
 
     let (tx, mut rx) = channel(config.channel_size);
@@ -135,38 +147,45 @@ pub async fn serve_stream_sink<E, T: Metadata + From<Session>>(
     let mut result_stream = stream
         .map(|message_or_err| async {
             let msg = message_or_err?;
-            let msg = match msg {
-                StreamMsg::Str(msg) => msg,
-                _ => return Ok(None),
-            };
-            Ok::<_, E>(rpc.handle_request(&msg, session.clone().into()).await)
+            match msg {
+                StreamMsg::Str(msg) => Ok(rpc
+                    .handle_request(&msg, session.clone().into())
+                    .await
+                    .map(|res| StreamMsg::Str(res.into()))),
+                StreamMsg::Ping => Ok(Some(StreamMsg::Pong)),
+                StreamMsg::Pong => Ok(None),
+            }
         })
         .buffer_unordered(config.pipeline_size);
     let mut shutdown = config.shutdown_signal;
     loop {
         tokio::select! {
-            // Always poll the result stream first, so that subscription id will
-            // be sent before subscription messages (which might have already
-            // been sent to the rx channel by the publishing task).
             biased;
+            // Response/pong messages.
             result = result_stream.next() => {
                 match result {
                     Some(result) => {
-                        if let Some(result) = result? {
-                            sink.send(StreamMsg::Str(result)).await?;
+                        // Stop serving if the stream returns an error.
+                        if let Some(s) = result? {
+                            sink.send(s).await?;
                         }
+                        // Reset the keepalive timer if we have received anything from the stream.
+                        // Ordinary messages as well as pings and pongs will all reset the timer.
                         if config.keep_alive {
                             dead_timer
                                 .as_mut()
                                 .reset(Instant::now() + config.keep_alive_duration);
                         }
                     }
-                    _ => break,
+                    // Stop serving if the stream ends.
+                    None => {
+                        break;
+                    }
                 }
             }
-            // This will never be None.
+            // Subscritpion response messages. This will never be None.
             Some(msg) = rx.recv() => {
-                sink.send(StreamMsg::Str(msg)).await?;
+                sink.send(StreamMsg::Str(msg.into())).await?;
             }
             _ = ping_interval.tick(), if config.keep_alive => {
                 sink.send(StreamMsg::Ping).await?;
@@ -180,4 +199,64 @@ pub async fn serve_stream_sink<E, T: Metadata + From<Session>>(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures_util::stream;
+
+    #[tokio::test]
+    async fn test_ping_pong() {
+        let rpc = MetaIoHandler::<Session>::default();
+
+        let stream = stream::iter([Ok(StreamMsg::Ping)]);
+        let mut sink: Vec<StreamMsg<String>> = Vec::new();
+
+        let result = serve_stream_sink(&rpc, &mut sink, stream, Default::default()).await;
+
+        assert!(result.is_ok());
+        assert_eq!(sink, [StreamMsg::Pong]);
+    }
+
+    #[tokio::test]
+    async fn test_subscription() {
+        let mut rpc = MetaIoHandler::default();
+        // Here we use add_method_with_meta instead of our add_pub_sub so that we are sure that
+        // the subscription data is sent before the subscirption ok response.
+        rpc.add_method_with_meta("subscribe", |_params, session: Session| async move {
+            // Send a subscription response through the channel
+            session
+                .raw_tx
+                .send("subscription_data".to_string())
+                .await
+                .unwrap();
+            Ok(serde_json::Value::String("ok".to_string()))
+        });
+
+        let stream = async_stream::stream! {
+            yield Ok(StreamMsg::Str(
+                r#"{"jsonrpc":"2.0","method":"subscribe","params":[],"id":1}"#.to_string(),
+            ));
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        };
+        tokio::pin!(stream);
+        let mut sink: Vec<StreamMsg<String>> = Vec::new();
+
+        let result = serve_stream_sink(&rpc, &mut sink, stream, Default::default()).await;
+
+        assert!(result.is_ok());
+        assert_eq!(sink.len(), 2);
+        // Test that we receive the subscription ok response and the subscription data, and
+        // in the correct order.
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(match &sink[0] {
+                StreamMsg::Str(s) => s,
+                _ => panic!("Expected StreamMsg::Str, got: {:?}", sink[0]),
+            })
+            .unwrap(),
+            serde_json::json!({ "jsonrpc": "2.0", "result": "ok", "id": 1 })
+        );
+        assert_eq!(sink[1], StreamMsg::Str("subscription_data".to_string()));
+    }
 }
