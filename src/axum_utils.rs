@@ -3,7 +3,10 @@ use std::sync::Arc;
 
 use axum::{
     body::Bytes,
-    extract::{ws::Message, WebSocketUpgrade},
+    extract::{
+        ws::{Message, Utf8Bytes},
+        WebSocketUpgrade,
+    },
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::post,
@@ -52,16 +55,16 @@ pub async fn handle_jsonrpc_ws<T: Metadata + From<Session>>(
 ) -> impl IntoResponse {
     ws.on_upgrade(move |socket| async move {
         let (socket_write, socket_read) = socket.split();
-        let write = socket_write.with(|msg: StreamMsg| async move {
+        let write = socket_write.with(|msg: StreamMsg<Utf8Bytes>| async move {
             Ok::<_, axum::Error>(match msg {
-                StreamMsg::Str(msg) => Message::Text(msg.into()),
+                StreamMsg::Str(msg) => Message::Text(msg),
                 StreamMsg::Ping => Message::Ping(b"ping"[..].into()),
                 StreamMsg::Pong => Message::Pong(b""[..].into()),
             })
         });
         let read = socket_read.filter_map(|msg| async move {
             match msg {
-                Ok(Message::Text(t)) => Some(Ok(StreamMsg::Str(t.as_str().to_string()))),
+                Ok(Message::Text(t)) => Some(Ok(StreamMsg::Str(t))),
                 Ok(Message::Pong(_)) => Some(Ok(StreamMsg::Pong)),
                 Ok(_) => None,
                 Err(e) => Some(Err(e)),
