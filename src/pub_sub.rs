@@ -9,7 +9,6 @@ use std::{
 use futures_core::Stream;
 use futures_util::StreamExt;
 use jsonrpc_core::{serde::Serialize, MetaIoHandler, Metadata, Params, Value};
-use rand::{thread_rng, Rng};
 use tokio::sync::mpsc::Sender;
 
 /// Transports intend to support pub/sub should provide `Session`s as metadata.
@@ -24,7 +23,7 @@ pub struct Session {
 impl Metadata for Session {}
 
 fn generate_id() -> String {
-    let id: [u8; 16] = thread_rng().gen();
+    let id: [u8; 16] = rand::random();
     let mut id_hex_bytes = vec![0u8; 34];
     id_hex_bytes[..2].copy_from_slice(b"0x");
     hex::encode_to_slice(id, &mut id_hex_bytes[2..]).unwrap();
