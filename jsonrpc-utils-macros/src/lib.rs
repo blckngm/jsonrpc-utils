@@ -43,7 +43,7 @@ pub fn rpc(args: TokenStream, input: TokenStream) -> TokenStream {
                 use schemars::JsonSchema;
 
                 let mut gen = schemars::generate::SchemaSettings::draft07().with(|s|
-                    s.definitions_path = "/components/schemas".into()
+                    s.definitions_path = "#/components/schemas/".into()
                 ).into_generator();
 
                 let methods = jsonrpc_utils::serde_json::json!([#(#method_defs)*]);
