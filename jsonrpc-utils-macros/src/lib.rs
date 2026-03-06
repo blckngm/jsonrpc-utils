@@ -42,7 +42,7 @@ pub fn rpc(args: TokenStream, input: TokenStream) -> TokenStream {
                 #[allow(unused)]
                 use schemars::JsonSchema;
 
-                let mut gen = schemars::gen::SchemaSettings::draft07().with(|s|
+                let mut gen = schemars::generate::SchemaSettings::draft07().with(|s|
                     s.definitions_path = "#/components/schemas/".into()
                 ).into_generator();
 
@@ -57,7 +57,7 @@ pub fn rpc(args: TokenStream, input: TokenStream) -> TokenStream {
                     },
                     "methods": methods,
                     "components": {
-                        "schemas": gen.take_definitions(),
+                        "schemas": gen.take_definitions(true),
                     }
                 })
             }
